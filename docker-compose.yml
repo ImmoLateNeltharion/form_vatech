@@ -1,0 +1,8 @@
+services:
+  vatech-form:
+    build: .
+    image: vatech-form:latest
+    container_name: vatech-form
+    restart: unless-stopped
+    ports:
+      - "80:80"        # или замени на "8080:80" если порт 80 занят
