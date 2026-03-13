@@ -396,9 +396,6 @@ function SuccessScreen({ name, botToken, botUsername, onBack }: {
             <h2 className="text-2xl font-extrabold text-vatech-dark mt-4 mb-1 animate-fade-in-up anim-delay-300">
               Спасибо, {name}!
             </h2>
-            <p className="text-vatech-gray-mid text-sm animate-fade-in-up anim-delay-400">
-              Анкета принята. Ваш номерок — у стойки регистрации.
-            </p>
 
             <div className="mt-6 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 rounded-2xl p-4 text-left space-y-3 animate-fade-in-up anim-delay-500">
               <p className="text-xs font-bold text-vatech-dark uppercase tracking-widest mb-1">Подойдите к стойке с подарками</p>
