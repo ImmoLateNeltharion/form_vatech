@@ -1,14 +1,15 @@
 """
 Vatech Raffle Bot
 ─────────────────
-HTTP API  POST /pending   — web form registers a participant (returns token)
-          GET  /health    — participant count
-Telegram  /start <token>  — welcome screen + button to claim number
-          /draw           — pick random winner with confirm button (admin)
-          /export         — download participants CSV (admin)
-          /count          — how many participants (admin)
-          /list           — full list (admin)
-          /reset          — clear all participants (admin)
+HTTP API  POST /pending       — web form registers a participant (returns token)
+          GET  /health        — participant count
+          GET  /participants  — list confirmed participants with chat_id (admin)
+          POST /notify        — send prize notification to a participant (admin)
+Telegram  /start <token>      — welcome screen + button to claim number
+          /export             — download participants CSV (admin)
+          /count              — how many participants (admin)
+          /list               — full list (admin)
+          /reset              — clear all participants (admin)
 """
 
 import os, io, csv, sqlite3, random, json, threading, logging, secrets
@@ -31,13 +32,19 @@ def init_db():
     with sqlite3.connect(DB_PATH) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS participants (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                name         TEXT NOT NULL,
-                phone        TEXT NOT NULL,
-                clinic       TEXT DEFAULT '',
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT NOT NULL,
+                phone         TEXT NOT NULL,
+                clinic        TEXT DEFAULT '',
+                chat_id       INTEGER,
                 registered_at TEXT DEFAULT (datetime('now','localtime'))
             )
         """)
+        # migrate: add chat_id column if upgrading from old schema
+        try:
+            c.execute("ALTER TABLE participants ADD COLUMN chat_id INTEGER")
+        except Exception:
+            pass
         c.execute("""
             CREATE TABLE IF NOT EXISTS pending (
                 token      TEXT PRIMARY KEY,
@@ -63,7 +70,7 @@ def db_get_pending(token: str):
             "SELECT name,phone,clinic FROM pending WHERE token=?", (token,)
         ).fetchone()
 
-def db_confirm(token: str):
+def db_confirm(token: str, chat_id: int):
     with sqlite3.connect(DB_PATH) as c:
         row = c.execute(
             "SELECT name,phone,clinic FROM pending WHERE token=?", (token,)
@@ -72,8 +79,8 @@ def db_confirm(token: str):
             return None
         c.execute("DELETE FROM pending WHERE token=?", (token,))
         c.execute(
-            "INSERT INTO participants (name,phone,clinic) VALUES (?,?,?)",
-            row
+            "INSERT INTO participants (name,phone,clinic,chat_id) VALUES (?,?,?,?)",
+            (row[0], row[1], row[2], chat_id)
         )
         pid   = c.execute("SELECT last_insert_rowid()").fetchone()[0]
         total = c.execute("SELECT COUNT(*) FROM participants").fetchone()[0]
@@ -89,10 +96,11 @@ def db_list():
             "SELECT id,name,phone,clinic,registered_at FROM participants ORDER BY id"
         ).fetchall()
 
-def db_draw():
+def db_list_with_chat_id():
     with sqlite3.connect(DB_PATH) as c:
-        rows = c.execute("SELECT id,name,phone,clinic FROM participants").fetchall()
-    return random.choice(rows) if rows else None
+        return c.execute(
+            "SELECT id,name,phone,clinic,chat_id,registered_at FROM participants ORDER BY id"
+        ).fetchall()
 
 def db_reset():
     with sqlite3.connect(DB_PATH) as c:
@@ -100,13 +108,17 @@ def db_reset():
 
 # ── HTTP API ──────────────────────────────────────────────────────────────────
 
+# Bot app reference + its event loop, set before polling starts
+_bot_app  = None
+_bot_loop = None
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
 
     def _send(self, code: int, body: dict):
-        data = json.dumps(body).encode()
+        data = json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
@@ -115,35 +127,71 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
     def do_GET(self):
         if self.path == "/health":
             self._send(200, {"ok": True, "participants": db_count()})
+        elif self.path == "/participants":
+            rows = db_list_with_chat_id()
+            self._send(200, {"ok": True, "participants": [
+                {"id": r[0], "name": r[1], "phone": r[2],
+                 "clinic": r[3], "chat_id": r[4], "registered_at": r[5]}
+                for r in rows
+            ]})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/pending":
-            self._send(404, {"error": "not found"}); return
         try:
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length) or b"{}")
         except Exception:
             self._send(400, {"error": "invalid json"}); return
 
-        name   = str(body.get("firstName", "")).strip()
-        phone  = str(body.get("phone",     "")).strip()
-        clinic = str(body.get("clinic",    "")).strip()
+        if self.path == "/pending":
+            name   = str(body.get("firstName", "")).strip()
+            phone  = str(body.get("phone",     "")).strip()
+            clinic = str(body.get("clinic",    "")).strip()
+            if not name or not phone:
+                self._send(400, {"error": "name and phone required"}); return
+            token = db_add_pending(name, phone, clinic)
+            log.info("pending: %s %s → token %s", name, phone, token)
+            self._send(200, {"ok": True, "token": token})
 
-        if not name or not phone:
-            self._send(400, {"error": "name and phone required"}); return
+        elif self.path == "/notify":
+            chat_id     = body.get("chat_id")
+            prize_name  = str(body.get("prize_name",  "")).strip()
+            winner_name = str(body.get("winner_name", "")).strip()
+            if not chat_id or not prize_name:
+                self._send(400, {"error": "chat_id and prize_name required"}); return
+            if _bot_app is None or _bot_loop is None:
+                self._send(503, {"error": "bot not ready"}); return
+            import asyncio
+            async def _send_msg():
+                await _bot_app.bot.send_message(
+                    chat_id=int(chat_id),
+                    text=(
+                        f"🎉 *Поздравляем, {winner_name}!*\n\n"
+                        f"Вы выиграли приз в розыгрыше Vatech:\n\n"
+                        f"🏆 *{prize_name}*\n\n"
+                        f"Пожалуйста, подойдите к стойке Vatech, чтобы забрать свой приз. 🎁"
+                    ),
+                    parse_mode="Markdown",
+                )
+            try:
+                future = asyncio.run_coroutine_threadsafe(_send_msg(), _bot_loop)
+                future.result(timeout=10)
+                log.info("notify: chat_id=%s prize='%s'", chat_id, prize_name)
+                self._send(200, {"ok": True})
+            except Exception as e:
+                log.error("notify error: %s", e)
+                self._send(200, {"ok": True, "warning": str(e)})
 
-        token = db_add_pending(name, phone, clinic)
-        log.info("pending: %s %s → token %s", name, phone, token)
-        self._send(200, {"ok": True, "token": token})
+        else:
+            self._send(404, {"error": "not found"})
 
 
 def run_api():
@@ -209,7 +257,8 @@ async def callback_claim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    result = db_confirm(token)
+    chat_id = query.from_user.id
+    result = db_confirm(token, chat_id)
     ctx.user_data.pop("pending_token", None)
 
     if result is None:
@@ -230,55 +279,6 @@ async def callback_claim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🕔 Розыгрыш — 28 мая в 17:00. Удачи! 🍀",
         parse_mode="Markdown",
     )
-
-@admin_only
-async def cmd_draw(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    n = db_count()
-    if n == 0:
-        await update.message.reply_text("😕 Нет зарегистрированных участников")
-        return
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🎲 Да, выбрать победителя!", callback_data="draw_confirm"),
-        InlineKeyboardButton("❌ Отмена", callback_data="draw_cancel"),
-    ]])
-    await update.message.reply_text(
-        f"🎰 Готов к розыгрышу!\n\n"
-        f"Участников: *{n}*\n\n"
-        f"Выбрать случайного победителя?",
-        parse_mode="Markdown",
-        reply_markup=keyboard,
-    )
-
-async def callback_draw_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if not is_admin(query.from_user.id):
-        await query.answer("❌ Нет доступа", show_alert=True)
-        return
-
-    winner = db_draw()
-    if not winner:
-        await query.edit_message_text("😕 Нет зарегистрированных участников")
-        return
-
-    n = db_count()
-    clinic_line = f"🏥 {winner[3]}\n" if winner[3] else ""
-    await query.edit_message_text(
-        f"🎉 *ПОБЕДИТЕЛЬ РОЗЫГРЫША!* 🎉\n\n"
-        f"👤 {winner[1]}\n"
-        f"📞 {winner[2]}\n"
-        f"🔢 Номер участника: *{winner[0]}*\n"
-        f"{clinic_line}\n"
-        f"_Выбран из {n} участников_",
-        parse_mode="Markdown",
-    )
-    log.info("draw: winner #%d %s", winner[0], winner[1])
-
-async def callback_draw_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("❌ Розыгрыш отменён.")
 
 @admin_only
 async def cmd_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -329,19 +329,23 @@ async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import asyncio
+
     init_db()
     threading.Thread(target=run_api, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
+    _bot_app = app
+    # Capture the event loop that run_polling will use
+    _bot_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_bot_loop)
+
     app.add_handler(CommandHandler("start",  cmd_start))
-    app.add_handler(CommandHandler("draw",   cmd_draw))
     app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(CommandHandler("count",  cmd_count))
     app.add_handler(CommandHandler("list",   cmd_list))
     app.add_handler(CommandHandler("reset",  cmd_reset))
-    app.add_handler(CallbackQueryHandler(callback_claim,        pattern="^claim$"))
-    app.add_handler(CallbackQueryHandler(callback_draw_confirm, pattern="^draw_confirm$"))
-    app.add_handler(CallbackQueryHandler(callback_draw_cancel,  pattern="^draw_cancel$"))
+    app.add_handler(CallbackQueryHandler(callback_claim, pattern="^claim$"))
 
     log.info("Bot polling started")
-    app.run_polling()
+    app.run_polling(close_loop=False)

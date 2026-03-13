@@ -38,6 +38,33 @@ export interface Submission {
   yandexSent: boolean;
 }
 
+// ─── Prizes & draw ────────────────────────────────────────────────────────────
+export interface Prize {
+  id: number;
+  name: string;
+  addedAt: string;
+}
+
+export interface BotParticipant {
+  id: number;
+  name: string;
+  phone: string;
+  clinic: string;
+  chat_id: number | null;
+  registered_at: string;
+}
+
+export interface DrawResult {
+  id: number;
+  prizeName: string;
+  winnerId: number;
+  winnerName: string;
+  winnerPhone: string;
+  winnerClinic: string;
+  notified: boolean;
+  drawnAt: string;
+}
+
 export interface AdminConfig {
   bitrixWebhookUrl: string;
   yandexSheetId: string;
