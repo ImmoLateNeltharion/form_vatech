@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 BOT_TOKEN  = os.environ["BOT_TOKEN"]
 ADMIN_IDS  = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
 DB_PATH    = os.environ.get("DB_PATH", "/data/raffle.db")
-API_PORT   = int(os.environ.get("API_PORT", "8090"))
+API_PORT   = int(os.environ.get("API_PORT", "18824"))
 
 # ── Database ─────────────────────────────────────────────────────────────────
 

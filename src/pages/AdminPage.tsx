@@ -291,12 +291,12 @@ function SettingsPanel({ config, setConfig, showToken, setShowToken, saved, onSa
 
       {/* Raffle Bot */}
       <div className="vatech-card">
-        <SectionHead color="bg-green-500" title="Telegram-бот розыгрыша" desc="URL сервера бота (http://ip:8090). При регистрации форма отправляет участника в бота." />
+        <SectionHead color="bg-green-500" title="Telegram-бот розыгрыша" desc="URL сервера бота (http://ip:18824). При регистрации форма отправляет участника в бота." />
         <div className="mt-3">
           <label className="vatech-label">URL бота (raffle-bot API)</label>
           <input value={config.raffleBotUrl}
             onChange={(e) => setConfig({ ...config, raffleBotUrl: e.target.value })}
-            placeholder="http://103.113.71.160:8090"
+            placeholder="http://103.113.71.160:18824"
             className="vatech-input" />
         </div>
       </div>

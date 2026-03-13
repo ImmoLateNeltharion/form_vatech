@@ -4,7 +4,7 @@ services:
     container_name: vatech-raffle-bot
     restart: unless-stopped
     ports:
-      - "8090:8090"
+      - "18824:18824"
     volumes:
       - raffle_data:/data
     env_file:
