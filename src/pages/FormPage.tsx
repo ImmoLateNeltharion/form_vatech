@@ -358,11 +358,16 @@ function SuccessScreen({ name, botToken, botUsername, onBack }: {
   const { telegramUrl, instagramUrl } = loadConfig();
   const deepLink = botToken ? `https://t.me/${botUsername}?start=${botToken}` : null;
 
-  const SocialLink = ({ href, children }: { href: string; children: React.ReactNode }) =>
-    href ? (
-      <a href={href} target="_blank" rel="noopener noreferrer"
-        className="text-vatech-red underline font-bold hover:no-underline">{children}</a>
-    ) : <strong>{children}</strong>;
+  const SocialLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
+    <a
+      href={href || undefined}
+      target={href ? "_blank" : undefined}
+      rel={href ? "noopener noreferrer" : undefined}
+      className={`font-bold underline ${href ? "text-vatech-red hover:no-underline cursor-pointer" : "text-vatech-gray-mid cursor-default"}`}
+    >
+      {children}
+    </a>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-vatech-gray-light flex flex-col">
@@ -412,9 +417,9 @@ function SuccessScreen({ name, botToken, botUsername, onBack }: {
                 <p className="text-sm font-bold text-vatech-dark">Вы участвуете в розыгрыше!</p>
               </div>
               <p className="text-xs text-vatech-gray leading-relaxed mb-3">
-                Победитель определяется автоматически через Telegram-бота{" "}
-                <strong>28 мая в 17:00</strong>. Перейдите в бота, чтобы получить
-                свой номер участника и следить за розыгрышем.
+                Для участия в дополнительном розыгрыше перейдите в Telegram-бота
+                и получите номер участника. Бот выдаёт номер и объявляет
+                о результатах <strong>28 мая в 17:00</strong>.
               </p>
               {deepLink ? (
                 <a
