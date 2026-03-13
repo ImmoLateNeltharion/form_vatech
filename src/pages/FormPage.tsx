@@ -11,6 +11,7 @@ import { Confetti } from "../components/Confetti";
 import { sendLeadToBitrix } from "../services/bitrix";
 import { sendToYandexSheet, sendToYandexForm } from "../services/yandex";
 import { addLeadSubmission } from "../services/submissions";
+import { sendRaffleToBot } from "../services/raffleBot";
 import { loadConfig } from "../services/config";
 import type { LeadFormData } from "../types";
 
@@ -43,6 +44,8 @@ type Status = "idle" | "loading" | "success" | "error";
 export default function FormPage() {
   const [status, setStatus] = useState<Status>("idle");
   const [submittedName, setSubmittedName] = useState("");
+  const [botToken, setBotToken] = useState<string | null>(null);
+  const [botUsername, setBotUsername] = useState("");
 
   // Progressive disclosure — only ever goes false → true
   const [showSec02, setShowSec02] = useState(false);
@@ -115,16 +118,24 @@ export default function FormPage() {
       consent: values.consent,
     };
     try {
-      const [bitrixOk, yandexOk] = await Promise.all([
+      const [bitrixOk, yandexOk, token] = await Promise.all([
         sendLeadToBitrix(config.bitrixWebhookUrl, data),
         config.yandexSheetId && config.yandexToken
           ? sendToYandexSheet(config.yandexSheetId, config.yandexToken, data as any)
           : config.yandexFormUrl
           ? sendToYandexForm(config.yandexFormUrl, data as any)
           : Promise.resolve(false),
+        sendRaffleToBot(config.raffleBotUrl, {
+          firstName: data.firstName,
+          phone: data.phone,
+          clinic: data.clinic,
+          consent: true,
+        }),
       ]);
       addLeadSubmission(data, bitrixOk, yandexOk);
       setSubmittedName(values.firstName);
+      setBotToken(token);
+      setBotUsername(config.raffleBotUsername || "vsuet_ctf_bot");
       setStatus("success");
       reset();
     } catch {
@@ -132,7 +143,14 @@ export default function FormPage() {
     }
   };
 
-  if (status === "success") return <SuccessScreen name={submittedName} onBack={() => setStatus("idle")} />;
+  if (status === "success") return (
+    <SuccessScreen
+      name={submittedName}
+      botToken={botToken}
+      botUsername={botUsername}
+      onBack={() => { setStatus("idle"); setBotToken(null); }}
+    />
+  );
 
   // Per-field fill flags
   const f = {
@@ -149,9 +167,7 @@ export default function FormPage() {
       <header className="bg-white shadow-sm sticky top-0 z-10 animate-slide-down">
         <div className="max-w-2xl mx-auto px-5 py-3.5 flex items-center justify-between">
           <VatechLogo className="h-9 w-auto" />
-          <a href="/raffle" className="text-xs font-semibold text-vatech-gray-mid hover:text-vatech-red transition-colors">
-            Розыгрыш билетов →
-          </a>
+          <span className="text-xs font-semibold text-vatech-gray-mid">🎟 Розыгрыш 28 мая в 17:00</span>
         </div>
       </header>
 
@@ -167,6 +183,9 @@ export default function FormPage() {
             Фирменный ежедневник или стикерпак — за подписку на соцсети{" "}
             <span className="text-white/60">(предложение ограничено)</span>
           </p>
+          <div className="mt-4 inline-flex items-center gap-2 bg-white/15 rounded-xl px-4 py-2 text-sm font-bold animate-fade-in-up anim-delay-300">
+            🎟 Анкета = участие в розыгрыше билетов 28 мая
+          </div>
         </div>
       </div>
 
@@ -330,8 +349,14 @@ function Section({ number, title, children, done = false, className = "" }: {
 
 // ── Success screen ────────────────────────────────────────────────────────────
 
-function SuccessScreen({ name, onBack }: { name: string; onBack: () => void }) {
+function SuccessScreen({ name, botToken, botUsername, onBack }: {
+  name: string;
+  botToken: string | null;
+  botUsername: string;
+  onBack: () => void;
+}) {
   const { telegramUrl, instagramUrl } = loadConfig();
+  const deepLink = botToken ? `https://t.me/${botUsername}?start=${botToken}` : null;
 
   const SocialLink = ({ href, children }: { href: string; children: React.ReactNode }) =>
     href ? (
@@ -380,12 +405,25 @@ function SuccessScreen({ name, onBack }: { name: string; onBack: () => void }) {
               ))}
             </div>
 
-            <div className="mt-5 inline-flex items-center gap-2 bg-vatech-red/8 border border-vatech-red/20 rounded-full px-4 py-2 animate-fade-in-up anim-delay-600">
+            {deepLink && (
+              <a
+                href={deepLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="vatech-btn-primary mt-5 flex items-center justify-center gap-2 animate-fade-in-up anim-delay-600"
+                style={{ background: "#229ED9" }}
+              >
+                <span className="text-lg leading-none">✈️</span>
+                Получить номер участника в Telegram
+              </a>
+            )}
+
+            <div className="mt-4 inline-flex items-center gap-2 bg-vatech-red/8 border border-vatech-red/20 rounded-full px-4 py-2 animate-fade-in-up anim-delay-700">
               <span className="text-base">🎟</span>
               <span className="text-sm font-semibold text-vatech-red">Розыгрыш 28 мая в 17:00</span>
             </div>
 
-            <button onClick={onBack} className="vatech-btn-primary mt-6 animate-fade-in-up anim-delay-700">
+            <button onClick={onBack} className="vatech-btn-primary mt-5 animate-fade-in-up anim-delay-800">
               Заполнить ещё одну анкету
             </button>
           </div>
