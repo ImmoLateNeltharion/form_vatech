@@ -161,6 +161,12 @@ class Handler(BaseHTTPRequestHandler):
             log.info("pending: %s %s → token %s", name, phone, token)
             self._send(200, {"ok": True, "token": token})
 
+        elif self.path == "/reset":
+            n = db_count()
+            db_reset()
+            log.info("HTTP reset: deleted %d participants", n)
+            self._send(200, {"ok": True, "deleted": n})
+
         elif self.path == "/notify":
             chat_id     = body.get("chat_id")
             prize_name  = str(body.get("prize_name",  "")).strip()

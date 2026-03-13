@@ -2,18 +2,17 @@ import { useState, useEffect, useRef } from "react";
 import {
   Settings, Table, Save, Trash2, Download,
   Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, Gift, Ticket, HelpCircle,
-  Trophy, Plus, X, Shuffle, CheckCircle, AlertCircle, Loader2,
+  Trophy, X, Shuffle, CheckCircle, AlertCircle, Loader2,
 } from "lucide-react";
 import { VatechLogo } from "../components/VatechLogo";
 import { StatusBadge } from "../components/StatusBadge";
 import { loadConfig, saveConfig } from "../services/config";
 import { getSubmissions, clearSubmissions } from "../services/submissions";
 import {
-  getPrizes, addPrize, deletePrize,
   getDrawResults, saveDrawResult,
-  fetchBotParticipants, notifyWinner,
+  fetchBotParticipants, notifyWinner, resetBotParticipants,
 } from "../services/prizes";
-import type { AdminConfig, Submission, FormType, Prize, DrawResult, BotParticipant } from "../types";
+import type { AdminConfig, Submission, FormType, DrawResult } from "../types";
 
 const ADMIN_PASSWORD = "kali kali";
 const AUTH_KEY = "vatech_admin_auth";
@@ -79,7 +78,6 @@ export default function AdminPage() {
 
   const leads = all.filter((s) => s.formType === "lead");
   const raffles = all.filter((s) => s.formType === "raffle");
-  const current = tab === "lead" ? leads : tab === "raffle" ? raffles : [];
 
   const handleSave = () => {
     saveConfig(config);
@@ -152,10 +150,7 @@ export default function AdminPage() {
             showToken={showToken} setShowToken={setShowToken}
             saved={saved} onSave={handleSave} />
         ) : tab === "raffle" ? (
-          <div className="space-y-6">
-            <PrizeDrawPanel botUrl={config.raffleBotUrl} raffles={raffles} />
-            <BotParticipantsList botUrl={config.raffleBotUrl} />
-          </div>
+          <RafflePanel botUrl={config.raffleBotUrl} raffles={raffles} onReload={reload} />
         ) : (
           <div>
             <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -434,241 +429,97 @@ function Divider() {
   );
 }
 
-// ── Bot Participants List ─────────────────────────────────────────────────────
+// ── Raffle Panel ──────────────────────────────────────────────────────────────
 
-function BotParticipantsList({ botUrl }: { botUrl: string }) {
-  const [parts, setParts]     = useState<BotParticipant[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr]         = useState(false);
-
-  const load = async () => {
-    setLoading(true);
-    setErr(false);
-    try { setParts(await fetchBotParticipants(botUrl)); }
-    catch { setErr(true); }
-    finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
-
-  const exportCsvBot = () => {
-    if (!parts.length) return;
-    const rows = [
-      ["№", "Имя", "Телефон", "Клиника", "Подтверждён в TG", "Дата"],
-      ...parts.map(p => [
-        p.id,
-        p.name,
-        p.phone,
-        p.clinic,
-        p.chat_id ? "Да" : "Нет",
-        new Date(p.registered_at).toLocaleString("ru-RU"),
-      ]),
-    ];
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));
-    a.download = `vatech_raffle_bot_${Date.now()}.csv`;
-    a.click();
-  };
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 className="text-base font-semibold text-vatech-dark flex items-center gap-2">
-          Участники розыгрыша
-          <span className="text-xs font-normal text-vatech-gray-mid bg-vatech-gray-light px-2 py-0.5 rounded-full">
-            {loading ? "…" : `${parts.length} подтверждено в боте`}
-          </span>
-        </h2>
-        <div className="flex gap-2">
-          <button onClick={load} disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-vatech-border text-vatech-gray text-sm hover:border-vatech-red hover:text-vatech-red transition-colors">
-            <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Обновить
-          </button>
-          <button onClick={exportCsvBot} disabled={!parts.length}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-vatech-red text-white text-sm hover:bg-vatech-red-dark transition-colors disabled:opacity-50">
-            <Download size={13} /> CSV
-          </button>
-        </div>
-      </div>
-
-      {err && (
-        <div className="vatech-card border-amber-200 bg-amber-50 text-amber-700 text-sm py-3 px-4 mb-3">
-          ⚠ Не удалось подключиться к боту. Проверьте URL бота в настройках.
-        </div>
-      )}
-
-      {!err && !loading && parts.length === 0 ? (
-        <div className="vatech-card text-center py-10">
-          <Table size={40} className="mx-auto text-vatech-border mb-3" />
-          <p className="text-vatech-gray-mid font-medium text-sm">Никто ещё не подтвердил участие в боте</p>
-          <p className="text-vatech-gray-mid text-xs mt-1">Участники появятся после нажатия кнопки в Telegram</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {parts.map((p, idx) => (
-            <div key={p.id} className="vatech-card py-3 px-4 flex items-center gap-4">
-              <span className="text-sm font-bold text-vatech-gray-mid w-7 text-center">{idx + 1}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-vatech-dark truncate">{p.name}</p>
-                <p className="text-xs text-vatech-gray-mid">{p.phone}{p.clinic ? ` · ${p.clinic}` : ""}</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                {p.chat_id
-                  ? <span className="text-xs text-green-600 font-medium">✓ TG</span>
-                  : <span className="text-xs text-amber-500">без TG</span>}
-                <p className="text-xs text-vatech-gray-mid mt-0.5">
-                  {new Date(p.registered_at).toLocaleString("ru-RU", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Prize Draw Panel ──────────────────────────────────────────────────────────
-
-function PrizeDrawPanel({ botUrl, raffles }: { botUrl: string; raffles: Submission[] }) {
-  const [prizes, setPrizes]               = useState<Prize[]>(getPrizes);
-  const [results, setResults]             = useState<DrawResult[]>(getDrawResults);
-  const [newName, setNewName]             = useState("");
-  const [drawing, setDrawing]             = useState<number | null>(null);
-  const [drawingAll, setDrawingAll]       = useState(false);
-  const [drawState, setDrawState]         = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [lastResult, setLastResult]       = useState<DrawResult | null>(null);
-  const [errMsg, setErrMsg]               = useState("");
-  const [botParts, setBotParts]           = useState<BotParticipant[]>([]);
-  const [botLoading, setBotLoading]       = useState(false);
+function RafflePanel({ botUrl, raffles, onReload }: {
+  botUrl: string;
+  raffles: Submission[];
+  onReload: () => void;
+}) {
+  const [results, setResults]       = useState<DrawResult[]>(getDrawResults);
+  const [prizeName, setPrizeName]   = useState("");
+  const [drawState, setDrawState]   = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [lastResult, setLastResult] = useState<DrawResult | null>(null);
+  const [errMsg, setErrMsg]         = useState("");
+  const [resetting, setResetting]   = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const norm = (p: string) => p.replace(/\D/g, "");
 
-  const loadBot = async () => {
-    setBotLoading(true);
-    try { setBotParts(await fetchBotParticipants(botUrl)); } catch { /* bot offline */ }
-    finally { setBotLoading(false); }
-  };
-  useEffect(() => { loadBot(); }, []);
+  const refreshResults = () => setResults(getDrawResults());
 
-  const refresh = () => { setPrizes(getPrizes()); setResults(getDrawResults()); };
-
-  // Eligible pool = bot confirmed + localStorage not in bot, minus previous winners
+  // Pool = raffle form submissions minus previous winners (1 prize per person)
   const buildPool = (currentResults: DrawResult[]) => {
     const wonPhones = new Set(currentResults.map(r => norm(r.winnerPhone)));
-    type PoolEntry = { name: string; phone: string; clinic: string; chat_id?: number | null };
-    const pool: PoolEntry[] = [];
-    const poolPhones = new Set<string>();
-
-    for (const bp of botParts) {
-      const p = norm(bp.phone);
-      if (!wonPhones.has(p)) { pool.push(bp); poolPhones.add(p); }
-    }
-    for (const s of raffles) {
+    const seen = new Set<string>();
+    return raffles.filter(s => {
       const p = norm(s.phone);
-      if (!poolPhones.has(p) && !wonPhones.has(p)) {
-        pool.push({ name: s.firstName, phone: s.phone, clinic: s.clinic ?? "" });
-        poolPhones.add(p);
-      }
-    }
-    return pool;
+      if (wonPhones.has(p) || seen.has(p)) return false;
+      seen.add(p);
+      return true;
+    });
   };
 
-  const doDrawOne = async (prize: Prize, currentResults: DrawResult[]): Promise<DrawResult | null> => {
-    const pool = buildPool(currentResults);
-    if (pool.length === 0) return null;
-    const winner = pool[Math.floor(Math.random() * pool.length)];
-    let notified = false;
-    if (winner.chat_id) {
-      notified = await notifyWinner(botUrl, winner.chat_id, winner.name, prize.name);
-    }
-    const result: DrawResult = {
-      id: Date.now(),
-      prizeName: prize.name,
-      winnerId: 0,
-      winnerName: winner.name,
-      winnerPhone: winner.phone,
-      winnerClinic: winner.clinic,
-      notified,
-      drawnAt: new Date().toISOString(),
-    };
-    saveDrawResult(result);
-    deletePrize(prize.id);
-    return result;
-  };
+  const eligiblePool = buildPool(results);
 
-  const handleAdd = () => {
-    const name = newName.trim();
-    if (!name) return;
-    addPrize(name);
-    setNewName("");
-    refresh();
-    inputRef.current?.focus();
-  };
-
-  const handleDelete = (id: number) => { deletePrize(id); refresh(); };
-
-  const handleDraw = async (prize: Prize) => {
-    setDrawing(prize.id);
-    setDrawState("loading");
-    setErrMsg("");
+  const handleDraw = async () => {
+    const name = prizeName.trim() || "Приз";
     const currentResults = getDrawResults();
-    if (buildPool(currentResults).length === 0) {
+    const pool = buildPool(currentResults);
+    if (pool.length === 0) {
       setErrMsg("Нет доступных участников (все уже выиграли или список пуст).");
       setDrawState("error");
       return;
     }
-    try {
-      const result = await doDrawOne(prize, currentResults);
-      if (!result) { setErrMsg("Нет доступных участников."); setDrawState("error"); return; }
-      setLastResult(result);
-      setDrawState("done");
-      refresh();
-    } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : "Ошибка розыгрыша");
-      setDrawState("error");
-    }
-  };
-
-  const handleDrawAll = async () => {
-    const allPrizes = getPrizes();
-    if (!allPrizes.length) return;
-    setDrawingAll(true);
     setDrawState("loading");
     setErrMsg("");
-    let currentResults = getDrawResults();
-    let lastRes: DrawResult | null = null;
-    for (const prize of allPrizes) {
-      if (buildPool(currentResults).length === 0) {
-        setErrMsg(`Не хватает участников для «${prize.name}».`);
-        setDrawState("error");
-        setDrawingAll(false);
-        refresh();
-        return;
-      }
-      try {
-        const result = await doDrawOne(prize, currentResults);
-        if (result) { currentResults = [result, ...currentResults]; lastRes = result; }
-      } catch (e) {
-        setErrMsg(e instanceof Error ? e.message : "Ошибка розыгрыша");
-        setDrawState("error");
-        setDrawingAll(false);
-        refresh();
-        return;
-      }
-      await new Promise(r => setTimeout(r, 200));
+    const s = pool[Math.floor(Math.random() * pool.length)];
+
+    // Try to find chat_id from bot (best-effort, bot may be offline)
+    let chat_id: number | null = null;
+    let notified = false;
+    try {
+      const botParts = await fetchBotParticipants(botUrl);
+      const match = botParts.find(bp => norm(bp.phone) === norm(s.phone));
+      if (match?.chat_id) chat_id = match.chat_id;
+    } catch { /* bot offline — skip */ }
+
+    if (chat_id) {
+      notified = await notifyWinner(botUrl, chat_id, s.firstName, name);
     }
-    setLastResult(lastRes);
+
+    const result: DrawResult = {
+      id: Date.now(),
+      prizeName: name,
+      winnerId: 0,
+      winnerName: s.firstName,
+      winnerPhone: s.phone,
+      winnerClinic: s.clinic ?? "",
+      notified,
+      drawnAt: new Date().toISOString(),
+    };
+    saveDrawResult(result);
+    setLastResult(result);
     setDrawState("done");
-    setDrawingAll(false);
-    refresh();
+    refreshResults();
   };
 
-  const resetDraw = () => { setDrawing(null); setDrawState("idle"); setLastResult(null); setErrMsg(""); };
+  const resetDraw = () => { setDrawState("idle"); setLastResult(null); setErrMsg(""); };
+
+  const handleBotReset = async () => {
+    if (!window.confirm("Удалить всех участников из базы Telegram-бота? Это действие нельзя отменить.")) return;
+    setResetting(true);
+    try {
+      const n = await resetBotParticipants(botUrl);
+      window.alert(`Удалено ${n} участников из базы бота.`);
+    } catch {
+      window.alert("Не удалось подключиться к боту. Проверьте URL бота в настройках.");
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const isBusy = drawState === "loading";
-  const eligibleCount = buildPool(results);
 
   return (
     <div className="space-y-4">
@@ -679,13 +530,17 @@ function PrizeDrawPanel({ botUrl, raffles }: { botUrl: string; raffles: Submissi
           <h1 className="text-xl font-bold text-vatech-dark">Розыгрыш призов</h1>
         </div>
         <div className="flex items-center gap-3 text-sm text-vatech-gray-mid">
-          <button onClick={loadBot} disabled={botLoading} title="Обновить из бота"
-            className="hover:text-vatech-red transition-colors">
-            <RefreshCw size={13} className={botLoading ? "animate-spin" : ""} />
+          <button onClick={() => { onReload(); resetDraw(); }} disabled={isBusy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-vatech-border text-vatech-gray hover:border-vatech-red hover:text-vatech-red transition-colors text-sm disabled:opacity-50">
+            <RefreshCw size={13} /> Обновить
           </button>
-          <span>В боте: <strong className="text-vatech-dark">{botParts.length}</strong></span>
+          <button onClick={handleBotReset} disabled={isBusy || resetting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 transition-colors text-sm disabled:opacity-50">
+            {resetting ? <><Loader2 size={13} className="animate-spin" /> Сброс…</> : <>🗑 Сбросить БД бота</>}
+          </button>
+          <span>Анкет: <strong className="text-vatech-dark">{raffles.length}</strong></span>
           <span>·</span>
-          <span>Доступны: <strong className={eligibleCount.length === 0 ? "text-red-500" : "text-green-600"}>{eligibleCount.length}</strong></span>
+          <span>Доступны: <strong className={eligiblePool.length === 0 ? "text-red-500" : "text-green-600"}>{eligiblePool.length}</strong></span>
         </div>
       </div>
 
@@ -702,7 +557,7 @@ function PrizeDrawPanel({ botUrl, raffles }: { botUrl: string; raffles: Submissi
               <p className="text-green-600 text-sm mt-1">Приз: <strong>{lastResult.prizeName}</strong></p>
               {lastResult.notified
                 ? <p className="text-green-500 text-xs mt-1">✓ Сообщение в Telegram отправлено</p>
-                : <p className="text-amber-600 text-xs mt-1">⚠ Telegram-уведомление не отправлено</p>}
+                : <p className="text-amber-600 text-xs mt-1">⚠ Telegram-уведомление не отправлено (бот недоступен или участник не подтверждён)</p>}
             </div>
           </div>
         </div>
@@ -719,59 +574,63 @@ function PrizeDrawPanel({ botUrl, raffles }: { botUrl: string; raffles: Submissi
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Prizes queue */}
-        <div className="vatech-card space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold text-vatech-dark text-sm">Призы в очереди ({prizes.length})</p>
-            {prizes.length > 1 && (
-              <button onClick={handleDrawAll} disabled={isBusy || eligibleCount.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-vatech-red text-vatech-red text-xs font-semibold hover:bg-vatech-red hover:text-white transition-colors disabled:opacity-40">
-                {drawingAll ? <><Loader2 size={12} className="animate-spin" /> Разыгрываем…</> : <><Shuffle size={12} /> Все сразу</>}
-              </button>
+        {/* Draw controls */}
+        <div className="vatech-card space-y-4">
+          <p className="font-semibold text-vatech-dark text-sm">Провести розыгрыш</p>
+
+          <div>
+            <label className="vatech-label">Название приза</label>
+            <input ref={inputRef} value={prizeName} onChange={e => setPrizeName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && !isBusy && eligiblePool.length > 0 && handleDraw()}
+              placeholder="Например: Термокружка Vatech"
+              className="vatech-input text-sm" />
+          </div>
+
+          <button onClick={handleDraw} disabled={isBusy || eligiblePool.length === 0}
+            className="vatech-btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
+            {isBusy
+              ? <><Loader2 size={16} className="animate-spin" /> Розыгрыш…</>
+              : <><Shuffle size={16} /> Разыграть среди {eligiblePool.length} участников</>}
+          </button>
+
+          {/* Participants list */}
+          <div>
+            <p className="text-xs font-semibold text-vatech-gray-mid uppercase tracking-wide mb-2">
+              Участники ({eligiblePool.length})
+            </p>
+            {raffles.length === 0 ? (
+              <div className="text-center py-6">
+                <Table size={32} className="mx-auto text-vatech-border mb-2" />
+                <p className="text-vatech-gray-mid text-sm">Анкет розыгрыша пока нет</p>
+                <p className="text-vatech-gray-mid text-xs mt-1">Нажмите «Обновить» после заполнения формы</p>
+              </div>
+            ) : (
+              <ul className="space-y-1.5 max-h-64 overflow-y-auto">
+                {raffles.map(s => {
+                  const won = results.some(r => norm(r.winnerPhone) === norm(s.phone));
+                  return (
+                    <li key={s.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm
+                      ${won ? "bg-vatech-gray-light opacity-50" : "bg-vatech-gray-light"}`}>
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium text-vatech-dark truncate block">{s.firstName}</span>
+                        <span className="text-xs text-vatech-gray-mid">{s.phone}{s.clinic ? ` · ${s.clinic}` : ""}</span>
+                      </div>
+                      {won && <span className="text-xs text-amber-500 flex-shrink-0">победитель</span>}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </div>
-
-          <div className="flex gap-2">
-            <input ref={inputRef} value={newName} onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleAdd()} placeholder="Название приза…"
-              className="vatech-input text-sm py-2 flex-1" />
-            <button onClick={handleAdd} disabled={!newName.trim()}
-              className="flex items-center gap-1 px-3 py-2 rounded-lg bg-vatech-red text-white text-sm font-medium hover:bg-vatech-red-dark transition-colors disabled:opacity-40">
-              <Plus size={15} /> Добавить
-            </button>
-          </div>
-
-          {prizes.length === 0 ? (
-            <p className="text-vatech-gray-mid text-sm text-center py-4">Список пуст. Добавьте первый приз 👆</p>
-          ) : (
-            <ul className="space-y-2">
-              {prizes.map((prize, idx) => (
-                <li key={prize.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-vatech-gray-light group">
-                  <span className="text-xs font-bold text-vatech-gray-mid w-5 text-center">{idx + 1}</span>
-                  <span className="flex-1 text-sm font-medium text-vatech-dark">{prize.name}</span>
-                  <button onClick={() => handleDraw(prize)} disabled={isBusy || eligibleCount.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-vatech-red text-white text-xs font-semibold hover:bg-vatech-red-dark transition-colors disabled:opacity-60">
-                    {drawState === "loading" && drawing === prize.id
-                      ? <><Loader2 size={12} className="animate-spin" /> Розыгрыш…</>
-                      : <><Shuffle size={12} /> Розыгрыш</>}
-                  </button>
-                  <button onClick={() => handleDelete(prize.id)} disabled={isBusy}
-                    className="text-vatech-border hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 disabled:pointer-events-none">
-                    <X size={15} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
 
         {/* Draw history */}
         <div className="vatech-card space-y-3">
-          <p className="font-semibold text-vatech-dark text-sm">История розыгрышей</p>
+          <p className="font-semibold text-vatech-dark text-sm">История розыгрышей ({results.length})</p>
           {results.length === 0 ? (
             <p className="text-vatech-gray-mid text-sm text-center py-4">Ещё ни одного розыгрыша</p>
           ) : (
-            <ul className="space-y-2 max-h-72 overflow-y-auto">
+            <ul className="space-y-2 max-h-[480px] overflow-y-auto">
               {results.map(r => (
                 <li key={r.id} className="p-2.5 rounded-lg bg-vatech-gray-light">
                   <div className="flex items-start justify-between gap-2">

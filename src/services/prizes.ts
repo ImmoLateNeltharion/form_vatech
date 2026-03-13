@@ -42,6 +42,14 @@ export async function fetchBotParticipants(botUrl: string): Promise<BotParticipa
   return json.participants as BotParticipant[];
 }
 
+export async function resetBotParticipants(botUrl: string): Promise<number> {
+  const base = botUrl || `${window.location.protocol}//${window.location.hostname}:18824`;
+  const res = await fetch(`${base.replace(/\/$/, "")}/reset`, { method: "POST" });
+  if (!res.ok) throw new Error(`Bot returned ${res.status}`);
+  const json = await res.json();
+  return json.deleted as number;
+}
+
 export async function notifyWinner(
   botUrl: string,
   chat_id: number,
