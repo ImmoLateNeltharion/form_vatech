@@ -289,6 +289,27 @@ function SettingsPanel({ config, setConfig, showToken, setShowToken, saved, onSa
         </div>
       </div>
 
+      {/* Social links */}
+      <div className="vatech-card">
+        <SectionHead color="bg-sky-400" title="Соцсети" desc="Ссылки на Telegram и Instagram — показываются на экране благодарности анкеты лида" />
+        <div className="space-y-3 mt-3">
+          <div>
+            <label className="vatech-label">Telegram (канал / группа)</label>
+            <input value={config.telegramUrl}
+              onChange={(e) => setConfig({ ...config, telegramUrl: e.target.value })}
+              placeholder="https://t.me/vatechrussia"
+              className="vatech-input" />
+          </div>
+          <div>
+            <label className="vatech-label">Instagram</label>
+            <input value={config.instagramUrl}
+              onChange={(e) => setConfig({ ...config, instagramUrl: e.target.value })}
+              placeholder="https://instagram.com/vatechrussia"
+              className="vatech-input" />
+          </div>
+        </div>
+      </div>
+
       {/* Raffle Bot */}
       <div className="vatech-card">
         <SectionHead color="bg-green-500" title="Telegram-бот розыгрыша" desc="URL сервера бота (http://ip:18824). При регистрации форма отправляет участника в бота." />

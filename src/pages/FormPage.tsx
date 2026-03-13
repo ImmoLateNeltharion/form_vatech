@@ -331,6 +331,14 @@ function Section({ number, title, children, done = false, className = "" }: {
 // ── Success screen ────────────────────────────────────────────────────────────
 
 function SuccessScreen({ name, onBack }: { name: string; onBack: () => void }) {
+  const { telegramUrl, instagramUrl } = loadConfig();
+
+  const SocialLink = ({ href, children }: { href: string; children: React.ReactNode }) =>
+    href ? (
+      <a href={href} target="_blank" rel="noopener noreferrer"
+        className="text-vatech-red underline font-bold hover:no-underline">{children}</a>
+    ) : <strong>{children}</strong>;
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-vatech-gray-light flex flex-col">
       <header className="bg-white shadow-sm">
@@ -361,8 +369,8 @@ function SuccessScreen({ name, onBack }: { name: string; onBack: () => void }) {
             <div className="mt-6 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 rounded-2xl p-4 text-left space-y-3 animate-fade-in-up anim-delay-500">
               <p className="text-xs font-bold text-vatech-dark uppercase tracking-widest mb-1">Подойдите к стойке с подарками</p>
               {[
-                { icon: "💬", text: <>Подпишитесь на <strong>Telegram</strong> → стикер-пак</> },
-                { icon: "📸", text: <>Подпишитесь на <strong>Instagram</strong> → ежедневник</> },
+                { icon: "💬", text: <>Подпишитесь на <SocialLink href={telegramUrl}>Telegram</SocialLink> → стикер-пак</> },
+                { icon: "📸", text: <>Подпишитесь на <SocialLink href={instagramUrl}>Instagram</SocialLink> → ежедневник</> },
                 { icon: "🎁", text: <>Анкета заполнена → <strong>термокружка + аромакамень + ежедневник</strong></> },
               ].map((item, i) => (
                 <div key={i} className="flex items-start gap-3">
