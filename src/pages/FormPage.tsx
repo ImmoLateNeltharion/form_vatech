@@ -356,7 +356,11 @@ function SuccessScreen({ name, botToken, botUsername, onBack }: {
   onBack: () => void;
 }) {
   const { telegramUrl, instagramUrl } = loadConfig();
-  const deepLink = botToken ? `https://t.me/${botUsername}?start=${botToken}` : null;
+  const deepLink = botUsername
+    ? botToken
+      ? `https://t.me/${botUsername}?start=${botToken}`
+      : `https://t.me/${botUsername}`
+    : null;
 
   const SocialLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
     <a
@@ -421,7 +425,7 @@ function SuccessScreen({ name, botToken, botUsername, onBack }: {
                 и получите номер участника. Бот выдаёт номер и объявляет
                 о результатах <strong>28 мая в 17:00</strong>.
               </p>
-              {deepLink ? (
+              {deepLink && (
                 <a
                   href={deepLink}
                   target="_blank"
@@ -432,8 +436,6 @@ function SuccessScreen({ name, botToken, botUsername, onBack }: {
                   <span className="text-base leading-none">✈️</span>
                   Получить номер участника в Telegram
                 </a>
-              ) : (
-                <p className="text-xs text-vatech-gray-mid italic">Подойдите к стойке для получения номера участника.</p>
               )}
             </div>
 
