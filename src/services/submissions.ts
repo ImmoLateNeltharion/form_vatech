@@ -47,7 +47,6 @@ export function addRaffleSubmission(
     firstName: data.firstName,
     phone: data.phone,
     clinic: data.clinic,
-    city: data.city,
     createdAt: new Date().toISOString(),
     bitrixSent,
     yandexSent,

@@ -10,6 +10,7 @@ import { AnimatedCheck } from "../components/AnimatedCheck";
 import { Confetti } from "../components/Confetti";
 import { sendRaffleToBitrix } from "../services/bitrix";
 import { addRaffleSubmission } from "../services/submissions";
+import { sendRaffleToBot } from "../services/raffleBot";
 import { loadConfig } from "../services/config";
 import type { RaffleFormData } from "../types";
 import { Footer } from "./FormPage";
@@ -18,7 +19,6 @@ const schema = z.object({
   firstName: z.string().min(2, "Введите имя"),
   phone: z.string().regex(/^\+7\d{10}$/, "Введите номер полностью"),
   clinic: z.string().optional().default(""),
-  city: z.string().optional().default(""),
   consent: z.literal(true, { error: "Необходимо согласие на обработку данных" }),
 });
 
@@ -41,11 +41,13 @@ export default function RafflePage() {
       firstName: values.firstName,
       phone: values.phone,
       clinic: values.clinic ?? "",
-      city: values.city ?? "",
       consent: values.consent,
     };
     try {
-      const bitrixOk = await sendRaffleToBitrix(config.bitrixWebhookUrl, data);
+      const [bitrixOk] = await Promise.all([
+        sendRaffleToBitrix(config.bitrixWebhookUrl, data),
+        sendRaffleToBot(config.raffleBotUrl, data),
+      ]);
       addRaffleSubmission(data, bitrixOk, false);
       setSubmittedName(values.firstName);
       setStatus("success");
@@ -78,7 +80,7 @@ export default function RafflePage() {
             🎟 Участвуйте в розыгрыше<br />билетов на вечернее шоу!
           </h1>
           <p className="text-white/85 text-sm sm:text-base leading-relaxed animate-fade-in-up anim-delay-200">
-            Заполните форму, получите бумажный номерок и опустите дубликат в лототрон.
+            Победитель определяется автоматически через чат-бот.
             Количество билетов <strong className="text-white">ограничено</strong>.
           </p>
           <div className="mt-4 inline-flex items-center gap-2 bg-white/10 rounded-xl px-4 py-2 text-sm font-bold animate-fade-in-up anim-delay-300">
@@ -104,10 +106,6 @@ export default function RafflePage() {
               </FormField>
               <FormField label="Клиника / организация" error={errors.clinic?.message}>
                 <input {...register("clinic")} placeholder="Необязательно"
-                  className="vatech-input" />
-              </FormField>
-              <FormField label="Город" error={errors.city?.message}>
-                <input {...register("city")} placeholder="Необязательно"
                   className="vatech-input" />
               </FormField>
             </div>
@@ -177,11 +175,11 @@ function SuccessScreen({ name, onBack }: { name: string; onBack: () => void }) {
             </p>
 
             <div className="mt-6 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 rounded-2xl p-4 text-left space-y-3 animate-fade-in-up anim-delay-500">
-              <p className="text-xs font-bold text-vatech-dark uppercase tracking-widest mb-1">Не забудьте</p>
+              <p className="text-xs font-bold text-vatech-dark uppercase tracking-widest mb-1">Пока ждёте розыгрыша</p>
               {[
-                { icon: "📥", text: <>Опустите дубликат номерка в <strong>лототрон</strong></> },
+                { icon: "🤖", text: <>Победитель определяется <strong>автоматически через чат-бот</strong></> },
                 { icon: "📲", text: <>Подпишитесь на соцсети → <strong>стикер-пак или ежедневник</strong></> },
-                { icon: "🎁", text: <>Заполните анкету лида → <strong>термокружка с аромакамнем</strong></> },
+                { icon: "🎁", text: <>Заполните анкету лида → <strong>брендированная термокружка</strong></> },
               ].map((item, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <span className="text-base mt-px leading-none">{item.icon}</span>

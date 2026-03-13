@@ -1,0 +1,14 @@
+services:
+  raffle-bot:
+    build: .
+    container_name: vatech-raffle-bot
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - raffle_data:/data
+    env_file:
+      - .env
+
+volumes:
+  raffle_data:

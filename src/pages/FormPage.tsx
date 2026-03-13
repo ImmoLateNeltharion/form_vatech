@@ -161,11 +161,11 @@ export default function FormPage() {
             <Gift size={14} /> Анкета участника
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold leading-tight mb-3 animate-fade-in-up anim-delay-100">
-            🎁 Получите эксклюзивный<br />подарок от Vatech!
+            🎁 Заполните анкету — получите<br />брендированную термокружку
           </h1>
           <p className="text-white/85 text-sm sm:text-base leading-relaxed animate-fade-in-up anim-delay-200">
-            Заполните анкету — получите <strong className="text-white">термокружку + аромакамень + ежедневник</strong>
-            {" "}(или ежедневник за подписку на соцсети).
+            Фирменный ежедневник или стикерпак — за подписку на соцсети{" "}
+            <span className="text-white/60">(предложение ограничено)</span>
           </p>
         </div>
       </div>
@@ -263,7 +263,7 @@ export default function FormPage() {
                   <input type="checkbox" {...register("consent")}
                     className="mt-0.5 w-4 h-4 accent-vatech-red flex-shrink-0" />
                   <span className="text-sm text-vatech-gray leading-relaxed">
-                    Я даю согласие на обработку моих персональных данных в соответствии с{" "}
+                    Я даю согласие на сбор, хранение и обработку моих персональных данных в соответствии с{" "}
                     <a href="https://www.vatechrussia.com/policy/" target="_blank" rel="noopener noreferrer"
                       className="text-vatech-red underline hover:no-underline">
                       Политикой конфиденциальности

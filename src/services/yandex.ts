@@ -40,7 +40,7 @@ export async function sendRaffleToYandexSheet(
 ): Promise<boolean> {
   if (!documentId || !token) return false;
   const now = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
-  return appendRow(documentId, token, [now, data.firstName, data.phone, data.clinic, data.city]);
+  return appendRow(documentId, token, [now, data.firstName, data.phone, data.clinic]);
 }
 
 /* ---------------------------------------------------------------
@@ -72,7 +72,7 @@ export async function sendRaffleToYandexForm(formUrl: string, data: RaffleFormDa
     body.append("answer_short_text_1", data.firstName);
     body.append("answer_short_text_2", data.phone);
     body.append("answer_short_text_3", data.clinic ?? "");
-    body.append("answer_short_text_4", data.city ?? "");
+    // field 4 removed (city was removed from raffle form)
     const res = await fetch(formUrl, { method: "POST", body, mode: "no-cors" });
     return res.type === "opaque" || res.ok;
   } catch {

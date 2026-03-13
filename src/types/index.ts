@@ -16,7 +16,6 @@ export interface RaffleFormData {
   firstName: string;
   phone: string;
   clinic: string;
-  city: string;
   consent: boolean;
 }
 
@@ -49,4 +48,6 @@ export interface AdminConfig {
   yandexRaffleFormUrl: string;
   // feedback-specific
   yandexFeedbackSheetId: string;
+  // raffle bot
+  raffleBotUrl: string;
 }

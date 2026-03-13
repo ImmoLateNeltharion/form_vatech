@@ -38,7 +38,6 @@ export async function sendRaffleToBitrix(webhookUrl: string, data: RaffleFormDat
     PHONE: JSON.stringify([{ VALUE: data.phone, VALUE_TYPE: "WORK" }]),
     COMMENTS: [
       data.clinic ? `Клиника: ${data.clinic}` : "",
-      data.city ? `Город: ${data.city}` : "",
     ].filter(Boolean).join("\n"),
     SOURCE_ID: "EXHIBITION",
     SOURCE_DESCRIPTION: "Розыгрыш билетов — выставка Vatech",
