@@ -154,41 +154,7 @@ export default function AdminPage() {
         ) : tab === "raffle" ? (
           <div className="space-y-6">
             <PrizeDrawPanel botUrl={config.raffleBotUrl} raffles={raffles} />
-            <div>
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <h2 className="text-base font-semibold text-vatech-dark">
-                  Участники розыгрыша ({raffles.length})
-                </h2>
-                <div className="flex gap-2">
-                  <button onClick={reload}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-vatech-border text-vatech-gray text-sm hover:border-vatech-red hover:text-vatech-red transition-colors">
-                    <RefreshCw size={13} /> Обновить
-                  </button>
-                  <button onClick={() => exportCsv("raffle")} disabled={!raffles.length}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-vatech-red text-white text-sm hover:bg-vatech-red-dark transition-colors disabled:opacity-50">
-                    <Download size={13} /> CSV
-                  </button>
-                  <button onClick={() => handleClear("raffle")} disabled={!raffles.length}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50 transition-colors disabled:opacity-50">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-              {raffles.length === 0 ? (
-                <div className="vatech-card text-center py-10">
-                  <Table size={40} className="mx-auto text-vatech-border mb-3" />
-                  <p className="text-vatech-gray-mid font-medium text-sm">Записей пока нет</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {raffles.map((s) => (
-                    <SubmissionRow key={s.id} s={s}
-                      expanded={expanded === s.id}
-                      onToggle={() => setExpanded(expanded === s.id ? null : s.id)} />
-                  ))}
-                </div>
-              )}
-            </div>
+            <BotParticipantsList botUrl={config.raffleBotUrl} />
           </div>
         ) : (
           <div>
@@ -464,6 +430,100 @@ function Divider() {
       <div className="flex-1 h-px bg-vatech-border" />
       <span className="text-xs text-vatech-gray-mid font-medium">ИЛИ</span>
       <div className="flex-1 h-px bg-vatech-border" />
+    </div>
+  );
+}
+
+// ── Bot Participants List ─────────────────────────────────────────────────────
+
+function BotParticipantsList({ botUrl }: { botUrl: string }) {
+  const [parts, setParts]     = useState<BotParticipant[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr]         = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setErr(false);
+    try { setParts(await fetchBotParticipants(botUrl)); }
+    catch { setErr(true); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const exportCsvBot = () => {
+    if (!parts.length) return;
+    const rows = [
+      ["№", "Имя", "Телефон", "Клиника", "Подтверждён в TG", "Дата"],
+      ...parts.map(p => [
+        p.id,
+        p.name,
+        p.phone,
+        p.clinic,
+        p.chat_id ? "Да" : "Нет",
+        new Date(p.registered_at).toLocaleString("ru-RU"),
+      ]),
+    ];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `vatech_raffle_bot_${Date.now()}.csv`;
+    a.click();
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 className="text-base font-semibold text-vatech-dark flex items-center gap-2">
+          Участники розыгрыша
+          <span className="text-xs font-normal text-vatech-gray-mid bg-vatech-gray-light px-2 py-0.5 rounded-full">
+            {loading ? "…" : `${parts.length} подтверждено в боте`}
+          </span>
+        </h2>
+        <div className="flex gap-2">
+          <button onClick={load} disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-vatech-border text-vatech-gray text-sm hover:border-vatech-red hover:text-vatech-red transition-colors">
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Обновить
+          </button>
+          <button onClick={exportCsvBot} disabled={!parts.length}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-vatech-red text-white text-sm hover:bg-vatech-red-dark transition-colors disabled:opacity-50">
+            <Download size={13} /> CSV
+          </button>
+        </div>
+      </div>
+
+      {err && (
+        <div className="vatech-card border-amber-200 bg-amber-50 text-amber-700 text-sm py-3 px-4 mb-3">
+          ⚠ Не удалось подключиться к боту. Проверьте URL бота в настройках.
+        </div>
+      )}
+
+      {!err && !loading && parts.length === 0 ? (
+        <div className="vatech-card text-center py-10">
+          <Table size={40} className="mx-auto text-vatech-border mb-3" />
+          <p className="text-vatech-gray-mid font-medium text-sm">Никто ещё не подтвердил участие в боте</p>
+          <p className="text-vatech-gray-mid text-xs mt-1">Участники появятся после нажатия кнопки в Telegram</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {parts.map((p, idx) => (
+            <div key={p.id} className="vatech-card py-3 px-4 flex items-center gap-4">
+              <span className="text-sm font-bold text-vatech-gray-mid w-7 text-center">{idx + 1}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-vatech-dark truncate">{p.name}</p>
+                <p className="text-xs text-vatech-gray-mid">{p.phone}{p.clinic ? ` · ${p.clinic}` : ""}</p>
+              </div>
+              <div className="text-right flex-shrink-0">
+                {p.chat_id
+                  ? <span className="text-xs text-green-600 font-medium">✓ TG</span>
+                  : <span className="text-xs text-amber-500">без TG</span>}
+                <p className="text-xs text-vatech-gray-mid mt-0.5">
+                  {new Date(p.registered_at).toLocaleString("ru-RU", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
