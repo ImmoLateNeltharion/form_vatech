@@ -153,7 +153,7 @@ export default function AdminPage() {
             saved={saved} onSave={handleSave} />
         ) : tab === "raffle" ? (
           <div className="space-y-6">
-            <PrizeDrawPanel botUrl={config.raffleBotUrl} />
+            <PrizeDrawPanel botUrl={config.raffleBotUrl} raffles={raffles} />
             <div>
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <h2 className="text-base font-semibold text-vatech-dark">
@@ -470,11 +470,11 @@ function Divider() {
 
 // ── Prize Draw Panel ──────────────────────────────────────────────────────────
 
-function PrizeDrawPanel({ botUrl }: { botUrl: string }) {
+function PrizeDrawPanel({ botUrl, raffles }: { botUrl: string; raffles: Submission[] }) {
   const [prizes, setPrizes]         = useState<Prize[]>(getPrizes);
   const [results, setResults]       = useState<DrawResult[]>(getDrawResults);
   const [newName, setNewName]       = useState("");
-  const [drawing, setDrawing]       = useState<number | null>(null); // prize id being drawn
+  const [drawing, setDrawing]       = useState<number | null>(null);
   const [drawState, setDrawState]   = useState<"idle" | "loading" | "done" | "error">("idle");
   const [lastResult, setLastResult] = useState<DrawResult | null>(null);
   const [errMsg, setErrMsg]         = useState("");
@@ -497,28 +497,41 @@ function PrizeDrawPanel({ botUrl }: { botUrl: string }) {
   };
 
   const handleDraw = async (prize: Prize) => {
+    if (raffles.length === 0) {
+      setDrawing(prize.id);
+      setErrMsg("Нет участников розыгрыша в списке.");
+      setDrawState("error");
+      return;
+    }
     setDrawing(prize.id);
     setDrawState("loading");
     setErrMsg("");
     try {
-      const participants = await fetchBotParticipants(botUrl);
-      if (participants.length === 0) {
-        setErrMsg("Нет подтверждённых участников в боте.");
-        setDrawState("error");
-        return;
-      }
-      const winner = participants[Math.floor(Math.random() * participants.length)];
+      // Pick random winner from admin submissions (source of truth)
+      const winner = raffles[Math.floor(Math.random() * raffles.length)];
+
+      // Try to find chat_id in bot DB by matching phone number
       let notified = false;
-      if (winner.chat_id) {
-        notified = await notifyWinner(botUrl, winner.chat_id, winner.name, prize.name);
+      try {
+        const botParticipants = await fetchBotParticipants(botUrl);
+        const normalize = (p: string) => p.replace(/\D/g, "");
+        const botMatch = botParticipants.find(
+          bp => normalize(bp.phone) === normalize(winner.phone)
+        );
+        if (botMatch?.chat_id) {
+          notified = await notifyWinner(botUrl, botMatch.chat_id, winner.firstName, prize.name);
+        }
+      } catch {
+        // Bot unavailable — draw still succeeds, just no Telegram notification
       }
+
       const result: DrawResult = {
         id: Date.now(),
         prizeName: prize.name,
         winnerId: winner.id,
-        winnerName: winner.name,
+        winnerName: winner.firstName,
         winnerPhone: winner.phone,
-        winnerClinic: winner.clinic,
+        winnerClinic: winner.clinic ?? "",
         notified,
         drawnAt: new Date().toISOString(),
       };
@@ -528,7 +541,7 @@ function PrizeDrawPanel({ botUrl }: { botUrl: string }) {
       setDrawState("done");
       refresh();
     } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : "Ошибка связи с ботом");
+      setErrMsg(e instanceof Error ? e.message : "Ошибка розыгрыша");
       setDrawState("error");
     }
   };
