@@ -50,6 +50,7 @@ export interface AdminConfig {
   yandexFeedbackSheetId: string;
   // raffle bot
   raffleBotUrl: string;
+  raffleBotUsername: string;
   // social links (shown on success screen)
   telegramUrl: string;
   instagramUrl: string;

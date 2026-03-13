@@ -34,6 +34,9 @@ export default function RafflePage() {
     defaultValues: { phone: "+7" },
   });
 
+  const [botToken, setBotToken] = useState<string | null>(null);
+  const [botUsername, setBotUsername] = useState("");
+
   const onSubmit = async (values: Schema) => {
     setStatus("loading");
     const config = loadConfig();
@@ -44,12 +47,14 @@ export default function RafflePage() {
       consent: values.consent,
     };
     try {
-      const [bitrixOk] = await Promise.all([
+      const [bitrixOk, token] = await Promise.all([
         sendRaffleToBitrix(config.bitrixWebhookUrl, data),
         sendRaffleToBot(config.raffleBotUrl, data),
       ]);
       addRaffleSubmission(data, bitrixOk, false);
       setSubmittedName(values.firstName);
+      setBotToken(token);
+      setBotUsername(config.raffleBotUsername || "vsuet_ctf_bot");
       setStatus("success");
       reset();
     } catch {
@@ -57,7 +62,14 @@ export default function RafflePage() {
     }
   };
 
-  if (status === "success") return <SuccessScreen name={submittedName} onBack={() => setStatus("idle")} />;
+  if (status === "success") return (
+    <SuccessScreen
+      name={submittedName}
+      botToken={botToken}
+      botUsername={botUsername}
+      onBack={() => { setStatus("idle"); setBotToken(null); }}
+    />
+  );
 
   return (
     <div className="min-h-screen bg-vatech-gray-light flex flex-col">
@@ -146,7 +158,13 @@ export default function RafflePage() {
   );
 }
 
-function SuccessScreen({ name, onBack }: { name: string; onBack: () => void }) {
+function SuccessScreen({ name, botToken, botUsername, onBack }: {
+  name: string;
+  botToken: string | null;
+  botUsername: string;
+  onBack: () => void;
+}) {
+  const deepLink = botToken ? `https://t.me/${botUsername}?start=${botToken}` : null;
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-vatech-gray-light flex flex-col">
       <header className="bg-white shadow-sm">
@@ -188,12 +206,25 @@ function SuccessScreen({ name, onBack }: { name: string; onBack: () => void }) {
               ))}
             </div>
 
-            <div className="mt-5 inline-flex items-center gap-2 bg-vatech-red/8 border border-vatech-red/20 rounded-full px-4 py-2 animate-fade-in-up anim-delay-600">
+            {deepLink && (
+              <a
+                href={deepLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="vatech-btn-primary mt-5 flex items-center justify-center gap-2 animate-fade-in-up anim-delay-600"
+                style={{ background: "#229ED9" }}
+              >
+                <span className="text-lg leading-none">✈️</span>
+                Получить номер участника в Telegram
+              </a>
+            )}
+
+            <div className="mt-4 inline-flex items-center gap-2 bg-vatech-red/8 border border-vatech-red/20 rounded-full px-4 py-2 animate-fade-in-up anim-delay-700">
               <span className="text-base">🍀</span>
               <span className="text-sm font-semibold text-vatech-red">Желаем удачи в розыгрыше!</span>
             </div>
 
-            <button onClick={onBack} className="vatech-btn-primary mt-6 animate-fade-in-up anim-delay-700">
+            <button onClick={onBack} className="vatech-btn-primary mt-5 animate-fade-in-up anim-delay-800">
               Зарегистрировать следующего участника
             </button>
           </div>

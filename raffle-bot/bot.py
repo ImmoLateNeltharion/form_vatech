@@ -1,15 +1,16 @@
 """
 Vatech Raffle Bot
 ─────────────────
-HTTP API  POST /register  — web form calls this when participant registers
-Telegram  /draw           — pick random winner (admin only)
+HTTP API  POST /pending   — web form registers a participant (returns token)
+          GET  /health    — participant count
+Telegram  /start <token>  — confirm registration, get participant number
+          /draw           — pick random winner (admin only)
           /count          — how many participants
           /list           — full list
           /reset          — clear all participants
-          /start          — help message
 """
 
-import os, sqlite3, random, json, threading, logging
+import os, sqlite3, random, json, threading, logging, secrets
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -36,11 +37,41 @@ def init_db():
                 registered_at TEXT DEFAULT (datetime('now','localtime'))
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS pending (
+                token      TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                phone      TEXT NOT NULL,
+                clinic     TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now','localtime'))
+            )
+        """)
 
-def db_add(name: str, phone: str, clinic: str) -> int:
+def db_add_pending(name: str, phone: str, clinic: str) -> str:
+    token = secrets.token_urlsafe(16)
     with sqlite3.connect(DB_PATH) as c:
-        c.execute("INSERT INTO participants (name,phone,clinic) VALUES (?,?,?)", (name, phone, clinic))
-    return db_count()
+        c.execute(
+            "INSERT INTO pending (token,name,phone,clinic) VALUES (?,?,?,?)",
+            (token, name, phone, clinic)
+        )
+    return token
+
+def db_confirm(token: str):
+    """Move pending → participants. Returns (id, name, total) or None if token not found."""
+    with sqlite3.connect(DB_PATH) as c:
+        row = c.execute(
+            "SELECT name,phone,clinic FROM pending WHERE token=?", (token,)
+        ).fetchone()
+        if not row:
+            return None
+        c.execute("DELETE FROM pending WHERE token=?", (token,))
+        c.execute(
+            "INSERT INTO participants (name,phone,clinic) VALUES (?,?,?)",
+            row
+        )
+        pid   = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+        total = c.execute("SELECT COUNT(*) FROM participants").fetchone()[0]
+        return pid, row[0], total
 
 def db_count() -> int:
     with sqlite3.connect(DB_PATH) as c:
@@ -48,7 +79,9 @@ def db_count() -> int:
 
 def db_list():
     with sqlite3.connect(DB_PATH) as c:
-        return c.execute("SELECT id,name,phone,clinic FROM participants ORDER BY id").fetchall()
+        return c.execute(
+            "SELECT id,name,phone,clinic FROM participants ORDER BY id"
+        ).fetchall()
 
 def db_draw():
     rows = db_list()
@@ -58,10 +91,10 @@ def db_reset():
     with sqlite3.connect(DB_PATH) as c:
         c.execute("DELETE FROM participants")
 
-# ── HTTP API (called by web form) ─────────────────────────────────────────────
+# ── HTTP API ──────────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *_): pass  # silence access log
+    def log_message(self, *_): pass
 
     def _send(self, code: int, body: dict):
         data = json.dumps(body).encode()
@@ -86,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/register":
+        if self.path != "/pending":
             self._send(404, {"error": "not found"}); return
         try:
             length = int(self.headers.get("Content-Length", 0))
@@ -101,9 +134,9 @@ class Handler(BaseHTTPRequestHandler):
         if not name or not phone:
             self._send(400, {"error": "name and phone required"}); return
 
-        count = db_add(name, phone, clinic)
-        log.info("registered %s %s → total %d", name, phone, count)
-        self._send(200, {"ok": True, "count": count})
+        token = db_add_pending(name, phone, clinic)
+        log.info("pending: %s %s → token %s", name, phone, token)
+        self._send(200, {"ok": True, "token": token})
 
 
 def run_api():
@@ -125,16 +158,37 @@ def admin_only(fn):
     return wrapper
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🎟 *Vatech — Бот розыгрыша*\n\n"
-        "Команды:\n"
-        "/draw — провести розыгрыш\n"
-        "/count — количество участников\n"
-        "/list — список участников\n"
-        "/reset — очистить список\n\n"
-        "_Участники регистрируются через форму на сайте_",
-        parse_mode="Markdown"
-    )
+    args = ctx.args
+    if args:
+        token = args[0]
+        result = db_confirm(token)
+        if result is None:
+            await update.message.reply_text(
+                "😕 Ссылка уже использована или недействительна.\n"
+                "Если вы ещё не зарегистрированы — попробуйте заполнить форму заново."
+            )
+            return
+        pid, name, total = result
+        log.info("confirmed: %s → participant #%d (total %d)", name, pid, total)
+        await update.message.reply_text(
+            f"🎟 *Вы зарегистрированы в розыгрыше!*\n\n"
+            f"👤 {name}\n"
+            f"🔢 Ваш номер участника: *{pid}*\n\n"
+            f"_Всего зарегистрировано: {total}_\n\n"
+            f"🕔 Розыгрыш — 28 мая в 17:00. Удачи! 🍀",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "🎟 *Vatech — Бот розыгрыша*\n\n"
+            "Для регистрации заполните форму на стенде и перейдите по ссылке.\n\n"
+            "_Команды для организаторов:_\n"
+            "/draw — провести розыгрыш\n"
+            "/count — количество участников\n"
+            "/list — список участников\n"
+            "/reset — очистить список",
+            parse_mode="Markdown"
+        )
 
 @admin_only
 async def cmd_draw(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -148,6 +202,7 @@ async def cmd_draw(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🎉 *ПОБЕДИТЕЛЬ РОЗЫГРЫША!* 🎉\n\n"
         f"👤 {winner[1]}\n"
         f"📞 {winner[2]}\n"
+        f"🔢 Номер участника: *{winner[0]}*\n"
         f"{clinic_line}\n"
         f"_Выбран из {n} участников_",
         parse_mode="Markdown"
@@ -184,11 +239,11 @@ if __name__ == "__main__":
     threading.Thread(target=run_api, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start",  cmd_start))
-    app.add_handler(CommandHandler("draw",   cmd_draw))
-    app.add_handler(CommandHandler("count",  cmd_count))
-    app.add_handler(CommandHandler("list",   cmd_list))
-    app.add_handler(CommandHandler("reset",  cmd_reset))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("draw",  cmd_draw))
+    app.add_handler(CommandHandler("count", cmd_count))
+    app.add_handler(CommandHandler("list",  cmd_list))
+    app.add_handler(CommandHandler("reset", cmd_reset))
 
     log.info("Bot polling started")
     app.run_polling()

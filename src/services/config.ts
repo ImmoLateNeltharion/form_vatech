@@ -11,6 +11,7 @@ export const defaultConfig: AdminConfig = {
   yandexRaffleFormUrl: "",
   yandexFeedbackSheetId: "",
   raffleBotUrl: "",
+  raffleBotUsername: "vsuet_ctf_bot",
   telegramUrl: "",
   instagramUrl: "",
 };

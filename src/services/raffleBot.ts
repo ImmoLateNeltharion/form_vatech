@@ -1,16 +1,16 @@
 import type { RaffleFormData } from "../types";
 
 /**
- * Send raffle registration to the Telegram bot's HTTP API.
- * Called alongside Bitrix/Yandex on raffle form submit.
+ * Send raffle registration to the bot as a pending entry.
+ * Returns the deep-link token, or null on failure.
  */
 export async function sendRaffleToBot(
   botUrl: string,
   data: RaffleFormData
-): Promise<boolean> {
-  if (!botUrl) return false;
+): Promise<string | null> {
+  if (!botUrl) return null;
   try {
-    const res = await fetch(`${botUrl.replace(/\/$/, "")}/register`, {
+    const res = await fetch(`${botUrl.replace(/\/$/, "")}/pending`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -19,8 +19,10 @@ export async function sendRaffleToBot(
         clinic: data.clinic,
       }),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.token ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
