@@ -4,13 +4,14 @@ Vatech Raffle Bot
 HTTP API  POST /pending   — web form registers a participant (returns token)
           GET  /health    — participant count
 Telegram  /start <token>  — welcome screen + button to claim number
-          /draw           — pick random winner (admin only)
-          /count          — how many participants
-          /list           — full list
-          /reset          — clear all participants
+          /draw           — pick random winner with confirm button (admin)
+          /export         — download participants CSV (admin)
+          /count          — how many participants (admin)
+          /list           — full list (admin)
+          /reset          — clear all participants (admin)
 """
 
-import os, sqlite3, random, json, threading, logging, secrets
+import os, io, csv, sqlite3, random, json, threading, logging, secrets
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -57,14 +58,12 @@ def db_add_pending(name: str, phone: str, clinic: str) -> str:
     return token
 
 def db_get_pending(token: str):
-    """Return (name, phone, clinic) for a pending token, or None."""
     with sqlite3.connect(DB_PATH) as c:
         return c.execute(
             "SELECT name,phone,clinic FROM pending WHERE token=?", (token,)
         ).fetchone()
 
 def db_confirm(token: str):
-    """Move pending → participants. Returns (id, name, total) or None if token not found."""
     with sqlite3.connect(DB_PATH) as c:
         row = c.execute(
             "SELECT name,phone,clinic FROM pending WHERE token=?", (token,)
@@ -87,11 +86,12 @@ def db_count() -> int:
 def db_list():
     with sqlite3.connect(DB_PATH) as c:
         return c.execute(
-            "SELECT id,name,phone,clinic FROM participants ORDER BY id"
+            "SELECT id,name,phone,clinic,registered_at FROM participants ORDER BY id"
         ).fetchall()
 
 def db_draw():
-    rows = db_list()
+    with sqlite3.connect(DB_PATH) as c:
+        rows = c.execute("SELECT id,name,phone,clinic FROM participants").fetchall()
     return random.choice(rows) if rows else None
 
 def db_reset():
@@ -170,7 +170,6 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         token = args[0]
         row = db_get_pending(token)
         if row is None:
-            # Token already used or invalid
             await update.message.reply_text(
                 "😕 Эта ссылка уже использована или недействительна.\n\n"
                 "Если вы ещё не получили номер — заполните форму на стенде заново."
@@ -191,7 +190,6 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard,
         )
     else:
-        # No token — info screen
         await update.message.reply_text(
             "🎟 *Vatech — Розыгрыш призов*\n\n"
             "Для участия заполните анкету на стенде Vatech и перейдите по ссылке из формы.\n\n"
@@ -235,21 +233,74 @@ async def callback_claim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def cmd_draw(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    winner = db_draw()
-    if not winner:
+    n = db_count()
+    if n == 0:
         await update.message.reply_text("😕 Нет зарегистрированных участников")
         return
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🎲 Да, выбрать победителя!", callback_data="draw_confirm"),
+        InlineKeyboardButton("❌ Отмена", callback_data="draw_cancel"),
+    ]])
+    await update.message.reply_text(
+        f"🎰 Готов к розыгрышу!\n\n"
+        f"Участников: *{n}*\n\n"
+        f"Выбрать случайного победителя?",
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+async def callback_draw_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    winner = db_draw()
+    if not winner:
+        await query.edit_message_text("😕 Нет зарегистрированных участников")
+        return
+
     n = db_count()
     clinic_line = f"🏥 {winner[3]}\n" if winner[3] else ""
-    await update.message.reply_text(
+    await query.edit_message_text(
         f"🎉 *ПОБЕДИТЕЛЬ РОЗЫГРЫША!* 🎉\n\n"
         f"👤 {winner[1]}\n"
         f"📞 {winner[2]}\n"
         f"🔢 Номер участника: *{winner[0]}*\n"
         f"{clinic_line}\n"
         f"_Выбран из {n} участников_",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )
+    log.info("draw: winner #%d %s", winner[0], winner[1])
+
+async def callback_draw_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("❌ Розыгрыш отменён.")
+
+@admin_only
+async def cmd_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    rows = db_list()
+    if not rows:
+        await update.message.reply_text("😕 Нет участников для экспорта")
+        return
+
+    buf = io.StringIO()
+    buf.write("\ufeff")  # BOM for Excel UTF-8
+    writer = csv.writer(buf)
+    writer.writerow(["№", "Имя", "Телефон", "Клиника", "Дата регистрации"])
+    for r in rows:
+        writer.writerow(r)
+
+    data = buf.getvalue().encode("utf-8")
+    await update.message.reply_document(
+        document=io.BytesIO(data),
+        filename="vatech_participants.csv",
+        caption=f"📊 Экспорт участников — {len(rows)} чел.",
+    )
+    log.info("export: %d participants sent to admin", len(rows))
 
 @admin_only
 async def cmd_count(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -282,12 +333,15 @@ if __name__ == "__main__":
     threading.Thread(target=run_api, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("draw",  cmd_draw))
-    app.add_handler(CommandHandler("count", cmd_count))
-    app.add_handler(CommandHandler("list",  cmd_list))
-    app.add_handler(CommandHandler("reset", cmd_reset))
-    app.add_handler(CallbackQueryHandler(callback_claim, pattern="^claim$"))
+    app.add_handler(CommandHandler("start",  cmd_start))
+    app.add_handler(CommandHandler("draw",   cmd_draw))
+    app.add_handler(CommandHandler("export", cmd_export))
+    app.add_handler(CommandHandler("count",  cmd_count))
+    app.add_handler(CommandHandler("list",   cmd_list))
+    app.add_handler(CommandHandler("reset",  cmd_reset))
+    app.add_handler(CallbackQueryHandler(callback_claim,        pattern="^claim$"))
+    app.add_handler(CallbackQueryHandler(callback_draw_confirm, pattern="^draw_confirm$"))
+    app.add_handler(CallbackQueryHandler(callback_draw_cancel,  pattern="^draw_cancel$"))
 
     log.info("Bot polling started")
     app.run_polling()
