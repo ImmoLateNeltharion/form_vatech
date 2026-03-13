@@ -12,7 +12,7 @@ import {
   getDrawResults, saveDrawResult,
   fetchBotParticipants, notifyWinner, resetBotParticipants,
 } from "../services/prizes";
-import type { AdminConfig, Submission, FormType, DrawResult } from "../types";
+import type { AdminConfig, Submission, FormType, DrawResult, BotParticipant } from "../types";
 
 const ADMIN_PASSWORD = "kali kali";
 const AUTH_KEY = "vatech_admin_auth";
@@ -442,75 +442,124 @@ function RafflePanel({ botUrl, raffles, onReload }: {
   const [lastResult, setLastResult] = useState<DrawResult | null>(null);
   const [errMsg, setErrMsg]         = useState("");
   const [resetting, setResetting]   = useState(false);
+  const [botParts, setBotParts]     = useState<BotParticipant[]>([]);
+  const [botLoading, setBotLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const norm = (p: string) => p.replace(/\D/g, "");
 
   const refreshResults = () => setResults(getDrawResults());
 
-  // Pool = raffle form submissions minus previous winners (1 prize per person)
+  const loadBot = async () => {
+    setBotLoading(true);
+    try { setBotParts(await fetchBotParticipants(botUrl)); }
+    catch { /* bot offline */ }
+    finally { setBotLoading(false); }
+  };
+
+  useEffect(() => { loadBot(); }, []);
+
+  // Priority pool:
+  // 1. Bot-confirmed (chat_id != null), minus previous winners
+  // 2. Fallback: all raffle form submissions, minus previous winners
   const buildPool = (currentResults: DrawResult[]) => {
     const wonPhones = new Set(currentResults.map(r => norm(r.winnerPhone)));
+
+    // Confirmed via bot
+    const confirmed = botParts.filter(bp => bp.chat_id && !wonPhones.has(norm(bp.phone)));
+    if (confirmed.length > 0) {
+      return { entries: confirmed.map(bp => ({
+        name: bp.name, phone: bp.phone, clinic: bp.clinic, chat_id: bp.chat_id,
+      })), source: "bot" as const };
+    }
+
+    // Fallback: form submissions, deduplicated by phone
     const seen = new Set<string>();
-    return raffles.filter(s => {
+    const fallback = raffles.filter(s => {
       const p = norm(s.phone);
       if (wonPhones.has(p) || seen.has(p)) return false;
       seen.add(p);
       return true;
-    });
+    }).map(s => ({ name: s.firstName, phone: s.phone, clinic: s.clinic ?? "", chat_id: null as number | null }));
+
+    return { entries: fallback, source: "forms" as const };
   };
 
-  const eligiblePool = buildPool(results);
+  const { entries: eligiblePool, source: poolSource } = buildPool(results);
 
   const handleDraw = async () => {
     const name = prizeName.trim() || "Приз";
+    setDrawState("loading");
+    setErrMsg("");
+
+    // Reload bot participants right before drawing for up-to-date data
+    let freshBotParts = botParts;
+    try { freshBotParts = await fetchBotParticipants(botUrl); setBotParts(freshBotParts); }
+    catch { /* use cached */ }
+
     const currentResults = getDrawResults();
-    const pool = buildPool(currentResults);
+    const wonPhones = new Set(currentResults.map(r => norm(r.winnerPhone)));
+
+    const confirmed = freshBotParts.filter(bp => bp.chat_id && !wonPhones.has(norm(bp.phone)));
+    let pool: Array<{ name: string; phone: string; clinic: string; chat_id: number | null }>;
+    let src: "bot" | "forms";
+
+    if (confirmed.length > 0) {
+      pool = confirmed.map(bp => ({ name: bp.name, phone: bp.phone, clinic: bp.clinic, chat_id: bp.chat_id }));
+      src = "bot";
+    } else {
+      const seen = new Set<string>();
+      pool = raffles.filter(s => {
+        const p = norm(s.phone);
+        if (wonPhones.has(p) || seen.has(p)) return false;
+        seen.add(p);
+        return true;
+      }).map(s => ({ name: s.firstName, phone: s.phone, clinic: s.clinic ?? "", chat_id: null }));
+      src = "forms";
+    }
+
     if (pool.length === 0) {
       setErrMsg("Нет доступных участников (все уже выиграли или список пуст).");
       setDrawState("error");
       return;
     }
-    setDrawState("loading");
-    setErrMsg("");
-    const s = pool[Math.floor(Math.random() * pool.length)];
 
-    // Try to find chat_id from bot (best-effort, bot may be offline)
-    let chat_id: number | null = null;
+    const winner = pool[Math.floor(Math.random() * pool.length)];
     let notified = false;
-    try {
-      const botParts = await fetchBotParticipants(botUrl);
-      const match = botParts.find(bp => norm(bp.phone) === norm(s.phone));
-      if (match?.chat_id) chat_id = match.chat_id;
-    } catch { /* bot offline — skip */ }
-
-    if (chat_id) {
-      notified = await notifyWinner(botUrl, chat_id, s.firstName, name);
+    if (winner.chat_id) {
+      notified = await notifyWinner(botUrl, winner.chat_id, winner.name, name);
     }
 
     const result: DrawResult = {
       id: Date.now(),
       prizeName: name,
       winnerId: 0,
-      winnerName: s.firstName,
-      winnerPhone: s.phone,
-      winnerClinic: s.clinic ?? "",
+      winnerName: winner.name,
+      winnerPhone: winner.phone,
+      winnerClinic: winner.clinic,
       notified,
       drawnAt: new Date().toISOString(),
     };
     saveDrawResult(result);
-    setLastResult(result);
+    setLastResult({ ...result, _source: src } as DrawResult & { _source: string });
     setDrawState("done");
     refreshResults();
   };
 
   const resetDraw = () => { setDrawState("idle"); setLastResult(null); setErrMsg(""); };
 
+  const handleRefresh = async () => {
+    onReload();
+    await loadBot();
+    resetDraw();
+  };
+
   const handleBotReset = async () => {
     if (!window.confirm("Удалить всех участников из базы Telegram-бота? Это действие нельзя отменить.")) return;
     setResetting(true);
     try {
       const n = await resetBotParticipants(botUrl);
+      setBotParts([]);
       window.alert(`Удалено ${n} участников из базы бота.`);
     } catch {
       window.alert("Не удалось подключиться к боту. Проверьте URL бота в настройках.");
@@ -520,6 +569,8 @@ function RafflePanel({ botUrl, raffles, onReload }: {
   };
 
   const isBusy = drawState === "loading";
+  const confirmedCount = botParts.filter(bp => bp.chat_id).length;
+  const wonPhoneSet = new Set(results.map(r => norm(r.winnerPhone)));
 
   return (
     <div className="space-y-4">
@@ -529,20 +580,34 @@ function RafflePanel({ botUrl, raffles, onReload }: {
           <Trophy size={20} className="text-vatech-red" />
           <h1 className="text-xl font-bold text-vatech-dark">Розыгрыш призов</h1>
         </div>
-        <div className="flex items-center gap-3 text-sm text-vatech-gray-mid">
-          <button onClick={() => { onReload(); resetDraw(); }} disabled={isBusy}
+        <div className="flex items-center gap-3 text-sm text-vatech-gray-mid flex-wrap">
+          <button onClick={handleRefresh} disabled={isBusy || botLoading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-vatech-border text-vatech-gray hover:border-vatech-red hover:text-vatech-red transition-colors text-sm disabled:opacity-50">
-            <RefreshCw size={13} /> Обновить
+            <RefreshCw size={13} className={botLoading ? "animate-spin" : ""} /> Обновить
           </button>
           <button onClick={handleBotReset} disabled={isBusy || resetting}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 transition-colors text-sm disabled:opacity-50">
             {resetting ? <><Loader2 size={13} className="animate-spin" /> Сброс…</> : <>🗑 Сбросить БД бота</>}
           </button>
-          <span>Анкет: <strong className="text-vatech-dark">{raffles.length}</strong></span>
+          <span>✈️ В боте: <strong className="text-vatech-dark">{confirmedCount}</strong></span>
+          <span>·</span>
+          <span>📋 Анкет: <strong className="text-vatech-dark">{raffles.length}</strong></span>
           <span>·</span>
           <span>Доступны: <strong className={eligiblePool.length === 0 ? "text-red-500" : "text-green-600"}>{eligiblePool.length}</strong></span>
         </div>
       </div>
+
+      {/* Pool source hint */}
+      {eligiblePool.length > 0 && (
+        <div className={`text-xs px-4 py-2 rounded-lg font-medium flex items-center gap-2
+          ${poolSource === "bot"
+            ? "bg-blue-50 border border-blue-100 text-blue-700"
+            : "bg-amber-50 border border-amber-100 text-amber-700"}`}>
+          {poolSource === "bot"
+            ? <>✈️ Розыгрыш среди подтверждённых в Telegram — {eligiblePool.length} чел.</>
+            : <>📋 В боте нет подтверждённых — розыгрыш среди всех участников анкеты ({eligiblePool.length} чел.)</>}
+        </div>
+      )}
 
       {/* Result banner */}
       {drawState === "done" && lastResult && (
@@ -557,7 +622,7 @@ function RafflePanel({ botUrl, raffles, onReload }: {
               <p className="text-green-600 text-sm mt-1">Приз: <strong>{lastResult.prizeName}</strong></p>
               {lastResult.notified
                 ? <p className="text-green-500 text-xs mt-1">✓ Сообщение в Telegram отправлено</p>
-                : <p className="text-amber-600 text-xs mt-1">⚠ Telegram-уведомление не отправлено (бот недоступен или участник не подтверждён)</p>}
+                : <p className="text-amber-600 text-xs mt-1">⚠ Telegram-уведомление не отправлено (участник не подтверждён в боте)</p>}
             </div>
           </div>
         </div>
@@ -593,33 +658,67 @@ function RafflePanel({ botUrl, raffles, onReload }: {
               : <><Shuffle size={16} /> Разыграть среди {eligiblePool.length} участников</>}
           </button>
 
-          {/* Participants list */}
-          <div>
-            <p className="text-xs font-semibold text-vatech-gray-mid uppercase tracking-wide mb-2">
-              Участники ({eligiblePool.length})
-            </p>
-            {raffles.length === 0 ? (
+          {/* Participants list — bot confirmed first, then form-only */}
+          <div className="space-y-2">
+            {confirmedCount > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1.5">
+                  ✈️ Подтверждены в Telegram ({botParts.filter(bp => bp.chat_id && !wonPhoneSet.has(norm(bp.phone))).length})
+                </p>
+                <ul className="space-y-1">
+                  {botParts.filter(bp => bp.chat_id).map(bp => {
+                    const won = wonPhoneSet.has(norm(bp.phone));
+                    return (
+                      <li key={bp.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm
+                        ${won ? "bg-vatech-gray-light opacity-40" : "bg-blue-50 border border-blue-100"}`}>
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium text-vatech-dark truncate block">{bp.name}</span>
+                          <span className="text-xs text-vatech-gray-mid">{bp.phone}{bp.clinic ? ` · ${bp.clinic}` : ""}</span>
+                        </div>
+                        {won
+                          ? <span className="text-xs text-amber-500 flex-shrink-0">победитель</span>
+                          : <span className="text-xs text-blue-500 flex-shrink-0">✓ TG</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {raffles.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-vatech-gray-mid uppercase tracking-wide mb-1.5">
+                  📋 Все анкеты ({raffles.length})
+                </p>
+                <ul className="space-y-1 max-h-48 overflow-y-auto">
+                  {raffles.map(s => {
+                    const won = wonPhoneSet.has(norm(s.phone));
+                    const inBot = botParts.some(bp => norm(bp.phone) === norm(s.phone) && bp.chat_id);
+                    return (
+                      <li key={s.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm
+                        ${won ? "opacity-40 bg-vatech-gray-light" : "bg-vatech-gray-light"}`}>
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium text-vatech-dark truncate block">{s.firstName}</span>
+                          <span className="text-xs text-vatech-gray-mid">{s.phone}{s.clinic ? ` · ${s.clinic}` : ""}</span>
+                        </div>
+                        {won
+                          ? <span className="text-xs text-amber-500 flex-shrink-0">победитель</span>
+                          : inBot
+                            ? <span className="text-xs text-blue-400 flex-shrink-0">✓ TG</span>
+                            : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {raffles.length === 0 && confirmedCount === 0 && (
               <div className="text-center py-6">
                 <Table size={32} className="mx-auto text-vatech-border mb-2" />
-                <p className="text-vatech-gray-mid text-sm">Анкет розыгрыша пока нет</p>
+                <p className="text-vatech-gray-mid text-sm">Участников пока нет</p>
                 <p className="text-vatech-gray-mid text-xs mt-1">Нажмите «Обновить» после заполнения формы</p>
               </div>
-            ) : (
-              <ul className="space-y-1.5 max-h-64 overflow-y-auto">
-                {raffles.map(s => {
-                  const won = results.some(r => norm(r.winnerPhone) === norm(s.phone));
-                  return (
-                    <li key={s.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm
-                      ${won ? "bg-vatech-gray-light opacity-50" : "bg-vatech-gray-light"}`}>
-                      <div className="flex-1 min-w-0">
-                        <span className="font-medium text-vatech-dark truncate block">{s.firstName}</span>
-                        <span className="text-xs text-vatech-gray-mid">{s.phone}{s.clinic ? ` · ${s.clinic}` : ""}</span>
-                      </div>
-                      {won && <span className="text-xs text-amber-500 flex-shrink-0">победитель</span>}
-                    </li>
-                  );
-                })}
-              </ul>
             )}
           </div>
         </div>
