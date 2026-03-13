@@ -51,6 +51,8 @@ export interface AdminConfig {
   // raffle bot
   raffleBotUrl: string;
   raffleBotUsername: string;
+  raffleBotToken: string;
+  raffleBotAdminIds: string;
   // social links (shown on success screen)
   telegramUrl: string;
   instagramUrl: string;

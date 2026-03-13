@@ -377,6 +377,21 @@ function SettingsPanel({ config, setConfig, showToken, setShowToken, saved, onSa
               placeholder="vsuet_ctf_bot"
               className="vatech-input" />
           </div>
+          <div>
+            <label className="vatech-label">Токен бота (BOT_TOKEN)</label>
+            <input value={config.raffleBotToken}
+              onChange={(e) => setConfig({ ...config, raffleBotToken: e.target.value })}
+              placeholder="123456789:AAF..."
+              className="vatech-input font-mono text-xs"
+              type="password" />
+          </div>
+          <div>
+            <label className="vatech-label">ID администраторов (через запятую)</label>
+            <input value={config.raffleBotAdminIds}
+              onChange={(e) => setConfig({ ...config, raffleBotAdminIds: e.target.value })}
+              placeholder="123456789, 987654321"
+              className="vatech-input" />
+          </div>
         </div>
       </div>
 
