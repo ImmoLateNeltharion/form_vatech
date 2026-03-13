@@ -9,15 +9,64 @@ import { loadConfig, saveConfig } from "../services/config";
 import { getSubmissions, clearSubmissions } from "../services/submissions";
 import type { AdminConfig, Submission, FormType } from "../types";
 
+const ADMIN_PASSWORD = "kali kali";
+const AUTH_KEY = "vatech_admin_auth";
+
+function LoginScreen({ onAuth }: { onAuth: () => void }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (value === ADMIN_PASSWORD) {
+      sessionStorage.setItem(AUTH_KEY, "1");
+      onAuth();
+    } else {
+      setError(true);
+      setValue("");
+      setTimeout(() => setError(false), 2000);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-vatech-gray-light flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl border border-vatech-border shadow-card p-8 w-full max-w-sm">
+        <div className="flex justify-center mb-6">
+          <VatechLogo className="h-10 w-auto" />
+        </div>
+        <h1 className="text-lg font-bold text-vatech-dark text-center mb-6">Панель администратора</h1>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="vatech-label">Пароль</label>
+            <input
+              type="password"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              autoFocus
+              className={`vatech-input ${error ? "border-vatech-red" : ""}`}
+              placeholder="Введите пароль"
+            />
+            {error && <p className="error-text mt-1">Неверный пароль</p>}
+          </div>
+          <button type="submit" className="vatech-btn-primary">Войти</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 type Tab = "lead" | "raffle" | "settings";
 
 export default function AdminPage() {
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem(AUTH_KEY) === "1");
   const [tab, setTab] = useState<Tab>("lead");
   const [all, setAll] = useState<Submission[]>([]);
   const [config, setConfig] = useState<AdminConfig>(loadConfig);
   const [saved, setSaved] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
+
+  if (!authed) return <LoginScreen onAuth={() => setAuthed(true)} />;
 
   const reload = () => setAll(getSubmissions());
   useEffect(reload, [tab]);
