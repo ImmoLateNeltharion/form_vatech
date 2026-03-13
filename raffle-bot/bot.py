@@ -3,7 +3,7 @@ Vatech Raffle Bot
 ─────────────────
 HTTP API  POST /pending   — web form registers a participant (returns token)
           GET  /health    — participant count
-Telegram  /start <token>  — confirm registration, get participant number
+Telegram  /start <token>  — welcome screen + button to claim number
           /draw           — pick random winner (admin only)
           /count          — how many participants
           /list           — full list
@@ -12,8 +12,8 @@ Telegram  /start <token>  — confirm registration, get participant number
 
 import os, sqlite3, random, json, threading, logging, secrets
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -55,6 +55,13 @@ def db_add_pending(name: str, phone: str, clinic: str) -> str:
             (token, name, phone, clinic)
         )
     return token
+
+def db_get_pending(token: str):
+    """Return (name, phone, clinic) for a pending token, or None."""
+    with sqlite3.connect(DB_PATH) as c:
+        return c.execute(
+            "SELECT name,phone,clinic FROM pending WHERE token=?", (token,)
+        ).fetchone()
 
 def db_confirm(token: str):
     """Move pending → participants. Returns (id, name, total) or None if token not found."""
@@ -144,7 +151,7 @@ def run_api():
     log.info("API server listening on port %d", API_PORT)
     srv.serve_forever()
 
-# ── Telegram commands ─────────────────────────────────────────────────────────
+# ── Telegram handlers ─────────────────────────────────────────────────────────
 
 def is_admin(uid: int) -> bool:
     return (not ADMIN_IDS) or (uid in ADMIN_IDS)
@@ -161,34 +168,70 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     args = ctx.args
     if args:
         token = args[0]
-        result = db_confirm(token)
-        if result is None:
+        row = db_get_pending(token)
+        if row is None:
+            # Token already used or invalid
             await update.message.reply_text(
-                "😕 Ссылка уже использована или недействительна.\n"
-                "Если вы ещё не зарегистрированы — попробуйте заполнить форму заново."
+                "😕 Эта ссылка уже использована или недействительна.\n\n"
+                "Если вы ещё не получили номер — заполните форму на стенде заново."
             )
             return
-        pid, name, total = result
-        log.info("confirmed: %s → participant #%d (total %d)", name, pid, total)
+
+        name = row[0]
+        ctx.user_data["pending_token"] = token
+
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🎟 Получить номер участника", callback_data="claim")
+        ]])
         await update.message.reply_text(
-            f"🎟 *Вы зарегистрированы в розыгрыше!*\n\n"
-            f"👤 {name}\n"
-            f"🔢 Ваш номер участника: *{pid}*\n\n"
-            f"_Всего зарегистрировано: {total}_\n\n"
-            f"🕔 Розыгрыш — 28 мая в 17:00. Удачи! 🍀",
-            parse_mode="Markdown"
+            f"👋 Привет, *{name}*!\n\n"
+            f"Вы зарегистрированы на мероприятии *Vatech*.\n\n"
+            f"Нажмите кнопку ниже, чтобы получить свой номер участника в розыгрыше призов 🎁",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
         )
     else:
+        # No token — info screen
         await update.message.reply_text(
-            "🎟 *Vatech — Бот розыгрыша*\n\n"
-            "Для регистрации заполните форму на стенде и перейдите по ссылке.\n\n"
-            "_Команды для организаторов:_\n"
-            "/draw — провести розыгрыш\n"
-            "/count — количество участников\n"
-            "/list — список участников\n"
-            "/reset — очистить список",
-            parse_mode="Markdown"
+            "🎟 *Vatech — Розыгрыш призов*\n\n"
+            "Для участия заполните анкету на стенде Vatech и перейдите по ссылке из формы.\n\n"
+            "Розыгрыш состоится *28 мая в 17:00*. Удачи! 🍀",
+            parse_mode="Markdown",
         )
+
+async def callback_claim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    token = ctx.user_data.get("pending_token")
+    if not token:
+        await query.edit_message_text(
+            "😕 Не удалось найти вашу регистрацию.\n"
+            "Попробуйте перейти по ссылке из формы ещё раз."
+        )
+        return
+
+    result = db_confirm(token)
+    ctx.user_data.pop("pending_token", None)
+
+    if result is None:
+        await query.edit_message_text(
+            "😕 Номер уже был выдан или регистрация не найдена.\n"
+            "Если вы ещё не участвуете — заполните форму на стенде заново."
+        )
+        return
+
+    pid, name, total = result
+    log.info("confirmed: %s → participant #%d (total %d)", name, pid, total)
+
+    await query.edit_message_text(
+        f"🎉 *Поздравляем, {name}!*\n\n"
+        f"Вы стали участником розыгрыша призов Vatech.\n\n"
+        f"🔢 Ваш номер участника: *{pid}*\n\n"
+        f"_Всего зарегистрировано: {total}_\n\n"
+        f"🕔 Розыгрыш — 28 мая в 17:00. Удачи! 🍀",
+        parse_mode="Markdown",
+    )
 
 @admin_only
 async def cmd_draw(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -244,6 +287,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("count", cmd_count))
     app.add_handler(CommandHandler("list",  cmd_list))
     app.add_handler(CommandHandler("reset", cmd_reset))
+    app.add_handler(CallbackQueryHandler(callback_claim, pattern="^claim$"))
 
     log.info("Bot polling started")
     app.run_polling()
