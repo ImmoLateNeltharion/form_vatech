@@ -405,25 +405,34 @@ function SuccessScreen({ name, botToken, botUsername, onBack }: {
               ))}
             </div>
 
-            {deepLink && (
-              <a
-                href={deepLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="vatech-btn-primary mt-5 flex items-center justify-center gap-2 animate-fade-in-up anim-delay-600"
-                style={{ background: "#229ED9" }}
-              >
-                <span className="text-lg leading-none">✈️</span>
-                Получить номер участника в Telegram
-              </a>
-            )}
-
-            <div className="mt-4 inline-flex items-center gap-2 bg-vatech-red/8 border border-vatech-red/20 rounded-full px-4 py-2 animate-fade-in-up anim-delay-700">
-              <span className="text-base">🎟</span>
-              <span className="text-sm font-semibold text-vatech-red">Розыгрыш 28 мая в 17:00</span>
+            {/* Raffle block */}
+            <div className="mt-5 rounded-2xl border-2 border-blue-100 bg-gradient-to-br from-blue-50 to-sky-50 p-4 text-left animate-fade-in-up anim-delay-600">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">🎟</span>
+                <p className="text-sm font-bold text-vatech-dark">Вы участвуете в розыгрыше!</p>
+              </div>
+              <p className="text-xs text-vatech-gray leading-relaxed mb-3">
+                Победитель определяется автоматически через Telegram-бота{" "}
+                <strong>28 мая в 17:00</strong>. Перейдите в бота, чтобы получить
+                свой номер участника и следить за розыгрышем.
+              </p>
+              {deepLink ? (
+                <a
+                  href={deepLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full rounded-xl px-4 py-3 text-white text-sm font-bold transition-opacity hover:opacity-90"
+                  style={{ background: "#229ED9" }}
+                >
+                  <span className="text-base leading-none">✈️</span>
+                  Получить номер участника в Telegram
+                </a>
+              ) : (
+                <p className="text-xs text-vatech-gray-mid italic">Подойдите к стойке для получения номера участника.</p>
+              )}
             </div>
 
-            <button onClick={onBack} className="vatech-btn-primary mt-5 animate-fade-in-up anim-delay-800">
+            <button onClick={onBack} className="vatech-btn-primary mt-5 animate-fade-in-up anim-delay-700">
               Заполнить ещё одну анкету
             </button>
           </div>
