@@ -405,7 +405,7 @@ function SuccessScreen({ name, botToken, botUsername, onBack }: {
               {[
                 { icon: "💬", text: <>Подпишитесь на <SocialLink href={telegramUrl}>Telegram</SocialLink> → стикер-пак</> },
                 { icon: "📸", text: <>Подпишитесь на <SocialLink href={instagramUrl}>Instagram</SocialLink> → ежедневник</> },
-                { icon: "🎁", text: <>Анкета заполнена → <strong>термокружка + аромакамень + ежедневник</strong></> },
+                { icon: "🎁", text: <>Анкета заполнена → <strong>термокружка</strong></> },
               ].map((item, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <span className="text-base mt-px leading-none">{item.icon}</span>
