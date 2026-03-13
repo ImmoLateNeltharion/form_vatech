@@ -3,14 +3,15 @@ import type { RaffleFormData } from "../types";
 /**
  * Send raffle registration to the bot as a pending entry.
  * Returns the deep-link token, or null on failure.
+ * If botUrl is not configured, falls back to same host on port 18824.
  */
 export async function sendRaffleToBot(
   botUrl: string,
   data: RaffleFormData
 ): Promise<string | null> {
-  if (!botUrl) return null;
+  const url = botUrl || `${window.location.protocol}//${window.location.hostname}:18824`;
   try {
-    const res = await fetch(`${botUrl.replace(/\/$/, "")}/pending`, {
+    const res = await fetch(`${url.replace(/\/$/, "")}/pending`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
