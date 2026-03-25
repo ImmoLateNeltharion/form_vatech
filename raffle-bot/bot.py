@@ -177,15 +177,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(503, {"error": "bot not ready"}); return
             import asyncio
             async def _send_msg():
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✅ Подтверждаю участие", callback_data="confirm_night")
+                ]])
                 await _bot_app.bot.send_message(
                     chat_id=int(chat_id),
                     text=(
-                        f"🎉 *Поздравляем, {winner_name}!*\n\n"
-                        f"Вы выиграли приз в розыгрыше Vatech:\n\n"
-                        f"🏆 *{prize_name}*\n\n"
-                        f"Пожалуйста, подойдите к стойке Vatech, чтобы забрать свой приз. 🎁"
+                        f"🌙 *Вы приглашены на Vatech Night*\n\n"
+                        f"Поздравляем — вы в числе гостей 🎉\n\n"
+                        f"Вы получаете билет на закрытое вечернее мероприятие: "
+                        f"музыка, нетворкинг и особая атмосфера вне основной программы выставки.\n\n"
+                        f"*Приз: {prize_name}*\n\n"
+                        f"Пожалуйста, подтвердите участие в течение 2 часов — "
+                        f"иначе билет может быть передан следующему участнику.\n\n"
+                        f"До встречи на Vatech Night ✨"
                     ),
                     parse_mode="Markdown",
+                    reply_markup=keyboard,
                 )
             try:
                 future = asyncio.run_coroutine_threadsafe(_send_msg(), _bot_loop)
@@ -195,6 +203,61 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 log.error("notify error: %s", e)
                 self._send(200, {"ok": True, "warning": str(e)})
+
+        elif self.path.startswith("/broadcast/"):
+            kind = self.path.split("/broadcast/")[1]
+            if kind not in ("announce", "hour", "launch"):
+                self._send(404, {"error": "unknown broadcast type"}); return
+            if _bot_app is None or _bot_loop is None:
+                self._send(503, {"error": "bot not ready"}); return
+            rows = db_list_with_chat_id()
+            targets = [r[4] for r in rows if r[4]]
+            if not targets:
+                self._send(200, {"ok": True, "sent": 0, "warning": "no confirmed participants"}); return
+            import asyncio
+            TEXT = {
+                "announce": (
+                    "🌙 *Vatech Night 28 мая — 4 билета, доступ ограничен*\n\n"
+                    "Совсем скоро мы разыграем билеты на закрытое вечернее мероприятие в рамках выставки.\n\n"
+                    "Это не просто вечер — это музыка, профессиональный нетворкинг "
+                    "и возможность стать частью Vatech Family.\n\n"
+                    "Проверьте, что вы выполнили все условия участия. "
+                    "Количество мест строго ограничено."
+                ),
+                "hour": (
+                    "⏰ *1 час до Vatech Night*\n\n"
+                    "Финальный момент перед розыгрышем.\n\n"
+                    "Убедитесь, что вы:\n"
+                    "✔ участвуете\n"
+                    "✔ выполнили все условия\n"
+                    "✔ подписаны на наш Telegram-канал\n\n"
+                    "Через час мы определим, кто получит приглашение в закрытый круг гостей вечера."
+                ),
+                "launch": (
+                    "🎉 *Запускаем розыгрыш Vatech Night*\n\n"
+                    "Прямо сейчас рандомайзер определяет гостей закрытого вечера.\n\n"
+                    "Уже через несколько минут станет ясно, кто получит доступ к атмосфере Vatech Night: "
+                    "музыка, общение и профессиональное окружение."
+                ),
+            }
+            msg = TEXT[kind]
+            async def _broadcast():
+                ok = 0
+                for cid in targets:
+                    try:
+                        await _bot_app.bot.send_message(chat_id=cid, text=msg, parse_mode="Markdown")
+                        ok += 1
+                    except Exception as e:
+                        log.warning("broadcast skip chat_id=%s: %s", cid, e)
+                return ok
+            try:
+                future = asyncio.run_coroutine_threadsafe(_broadcast(), _bot_loop)
+                sent = future.result(timeout=60)
+                log.info("broadcast/%s: sent to %d/%d", kind, sent, len(targets))
+                self._send(200, {"ok": True, "sent": sent, "total": len(targets)})
+            except Exception as e:
+                log.error("broadcast error: %s", e)
+                self._send(500, {"error": str(e)})
 
         else:
             self._send(404, {"error": "not found"})
@@ -238,16 +301,17 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ]])
         await update.message.reply_text(
             f"👋 Привет, *{name}*!\n\n"
-            f"Вы зарегистрированы на мероприятии *Vatech*.\n\n"
-            f"Нажмите кнопку ниже, чтобы получить свой номер участника в розыгрыше призов 🎁",
+            f"Вы зарегистрированы на стенде *Vatech*.\n\n"
+            f"Нажмите кнопку ниже, чтобы подтвердить участие в розыгрыше "
+            f"*Vatech Night* — закрытого вечернего мероприятия 🌙",
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
     else:
         await update.message.reply_text(
-            "🎟 *Vatech — Розыгрыш призов*\n\n"
+            "🌙 *Vatech Night — Розыгрыш билетов*\n\n"
             "Для участия заполните анкету на стенде Vatech и перейдите по ссылке из формы.\n\n"
-            "Розыгрыш состоится *28 мая в 17:00*. Удачи! 🍀",
+            "Розыгрыш *4 билетов* состоится 28 мая. Удачи! 🍀",
             parse_mode="Markdown",
         )
 
@@ -278,13 +342,85 @@ async def callback_claim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     log.info("confirmed: %s → participant #%d (total %d)", name, pid, total)
 
     await query.edit_message_text(
-        f"🎉 *Поздравляем, {name}!*\n\n"
-        f"Вы стали участником розыгрыша призов Vatech.\n\n"
-        f"🔢 Ваш номер участника: *{pid}*\n\n"
-        f"_Всего зарегистрировано: {total}_\n\n"
-        f"🕔 Розыгрыш — 28 мая в 17:00. Удачи! 🍀",
+        f"✅ *{name}, вы в игре!*\n\n"
+        f"Вы подтверждены как участник розыгрыша *Vatech Night*.\n\n"
+        f"🔢 Ваш номер: *{pid}*\n"
+        f"_Всего участников: {total}_\n\n"
+        f"Следите за сообщениями — если вы выиграете, мы напишем сюда 🌙",
         parse_mode="Markdown",
     )
+
+async def callback_confirm_night(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    name = query.from_user.first_name or "Участник"
+    await query.edit_message_reply_markup(reply_markup=None)
+    await query.message.reply_text(
+        f"🎉 *Отлично, {name}!*\n\n"
+        f"Ваше участие в Vatech Night подтверждено. Ждём вас! ✨",
+        parse_mode="Markdown",
+    )
+    # Notify admins
+    user = query.from_user
+    note = f"✅ Победитель подтвердил участие: {user.full_name} (@{user.username or '—'}, id={user.id})"
+    for aid in ADMIN_IDS:
+        try:
+            await query.get_bot().send_message(chat_id=aid, text=note)
+        except Exception:
+            pass
+    log.info("night_confirm: user_id=%s name=%s", user.id, user.full_name)
+
+async def _broadcast_text(text: str):
+    rows = db_list_with_chat_id()
+    ok = 0
+    for r in rows:
+        cid = r[4]
+        if not cid:
+            continue
+        try:
+            await _bot_app.bot.send_message(chat_id=cid, text=text, parse_mode="Markdown")
+            ok += 1
+        except Exception as e:
+            log.warning("broadcast skip chat_id=%s: %s", cid, e)
+    return ok
+
+@admin_only
+async def cmd_announce(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "🌙 *Vatech Night 28 мая — 4 билета, доступ ограничен*\n\n"
+        "Совсем скоро мы разыграем билеты на закрытое вечернее мероприятие в рамках выставки.\n\n"
+        "Это не просто вечер — это музыка, профессиональный нетворкинг "
+        "и возможность стать частью Vatech Family.\n\n"
+        "Проверьте, что вы выполнили все условия участия. "
+        "Количество мест строго ограничено."
+    )
+    sent = await _broadcast_text(msg)
+    await update.message.reply_text(f"📢 Анонс отправлен: {sent} участников")
+
+@admin_only
+async def cmd_hour(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "⏰ *1 час до Vatech Night*\n\n"
+        "Финальный момент перед розыгрышем.\n\n"
+        "Убедитесь, что вы:\n"
+        "✔ участвуете\n"
+        "✔ выполнили все условия\n"
+        "✔ подписаны на наш Telegram-канал\n\n"
+        "Через час мы определим, кто получит приглашение в закрытый круг гостей вечера."
+    )
+    sent = await _broadcast_text(msg)
+    await update.message.reply_text(f"⏰ Рассылка «1 час» отправлена: {sent} участников")
+
+@admin_only
+async def cmd_launch(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "🎉 *Запускаем розыгрыш Vatech Night*\n\n"
+        "Прямо сейчас рандомайзер определяет гостей закрытого вечера.\n\n"
+        "Уже через несколько минут станет ясно, кто получит доступ к атмосфере Vatech Night: "
+        "музыка, общение и профессиональное окружение."
+    )
+    sent = await _broadcast_text(msg)
+    await update.message.reply_text(f"🎉 Рассылка «старт» отправлена: {sent} участников")
 
 @admin_only
 async def cmd_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -346,12 +482,16 @@ if __name__ == "__main__":
     _bot_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_bot_loop)
 
-    app.add_handler(CommandHandler("start",  cmd_start))
-    app.add_handler(CommandHandler("export", cmd_export))
-    app.add_handler(CommandHandler("count",  cmd_count))
-    app.add_handler(CommandHandler("list",   cmd_list))
-    app.add_handler(CommandHandler("reset",  cmd_reset))
-    app.add_handler(CallbackQueryHandler(callback_claim, pattern="^claim$"))
+    app.add_handler(CommandHandler("start",    cmd_start))
+    app.add_handler(CommandHandler("export",   cmd_export))
+    app.add_handler(CommandHandler("count",    cmd_count))
+    app.add_handler(CommandHandler("list",     cmd_list))
+    app.add_handler(CommandHandler("reset",    cmd_reset))
+    app.add_handler(CommandHandler("announce", cmd_announce))
+    app.add_handler(CommandHandler("hour",     cmd_hour))
+    app.add_handler(CommandHandler("launch",   cmd_launch))
+    app.add_handler(CallbackQueryHandler(callback_claim,         pattern="^claim$"))
+    app.add_handler(CallbackQueryHandler(callback_confirm_night, pattern="^confirm_night$"))
 
     log.info("Bot polling started")
     app.run_polling(close_loop=False)
