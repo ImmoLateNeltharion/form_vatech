@@ -444,6 +444,8 @@ function RafflePanel({ botUrl, raffles, onReload }: {
   const [resetting, setResetting]   = useState(false);
   const [botParts, setBotParts]     = useState<BotParticipant[]>([]);
   const [botLoading, setBotLoading] = useState(false);
+  const [broadcastState, setBroadcastState] = useState<Record<string, "idle" | "loading" | "done" | "error">>({});
+  const [broadcastResult, setBroadcastResult] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   const norm = (p: string) => p.replace(/\D/g, "");
@@ -554,6 +556,26 @@ function RafflePanel({ botUrl, raffles, onReload }: {
     resetDraw();
   };
 
+  const handleBroadcast = async (kind: "announce" | "hour" | "launch") => {
+    setBroadcastState(s => ({ ...s, [kind]: "loading" }));
+    setBroadcastResult(r => ({ ...r, [kind]: "" }));
+    try {
+      const res = await fetch(`${botUrl}/broadcast/${kind}`, { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        const warn = data.sent === 0 ? "Нет подтверждённых участников" : `Отправлено: ${data.sent} из ${data.total}`;
+        setBroadcastResult(r => ({ ...r, [kind]: warn }));
+        setBroadcastState(s => ({ ...s, [kind]: "done" }));
+      } else {
+        setBroadcastResult(r => ({ ...r, [kind]: data.error ?? "Ошибка" }));
+        setBroadcastState(s => ({ ...s, [kind]: "error" }));
+      }
+    } catch {
+      setBroadcastResult(r => ({ ...r, [kind]: "Бот недоступен" }));
+      setBroadcastState(s => ({ ...s, [kind]: "error" }));
+    }
+  };
+
   const handleBotReset = async () => {
     if (!window.confirm("Удалить всех участников из базы Telegram-бота? Это действие нельзя отменить.")) return;
     setResetting(true);
@@ -608,6 +630,46 @@ function RafflePanel({ botUrl, raffles, onReload }: {
             : <>📋 В боте нет подтверждённых — розыгрыш среди всех участников анкеты ({eligiblePool.length} чел.)</>}
         </div>
       )}
+
+      {/* Broadcast buttons */}
+      {(() => {
+        const BTNS: { kind: "announce" | "hour" | "launch"; label: string; icon: string; desc: string }[] = [
+          { kind: "announce", icon: "🌙", label: "Анонс",       desc: "Vatech Night — скоро розыгрыш" },
+          { kind: "hour",     icon: "⏰", label: "1 час до",    desc: "Финальное напоминание" },
+          { kind: "launch",   icon: "🎉", label: "Запуск",      desc: "Запускаем рандомайзер" },
+        ];
+        return (
+          <div className="vatech-card space-y-3">
+            <p className="text-xs font-semibold text-vatech-gray-mid uppercase tracking-wide">Рассылки участникам</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {BTNS.map(({ kind, icon, label, desc }) => {
+                const st = broadcastState[kind] ?? "idle";
+                const res = broadcastResult[kind];
+                return (
+                  <div key={kind} className="flex flex-col gap-1">
+                    <button
+                      onClick={() => handleBroadcast(kind)}
+                      disabled={st === "loading" || isBusy}
+                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50
+                        ${st === "done"  ? "bg-green-50 border-green-200 text-green-700" :
+                          st === "error" ? "bg-red-50 border-red-200 text-red-600" :
+                          "bg-vatech-gray-light border-vatech-border text-vatech-dark hover:border-vatech-red hover:text-vatech-red"}`}
+                    >
+                      {st === "loading"
+                        ? <Loader2 size={14} className="animate-spin" />
+                        : <span>{icon}</span>}
+                      {label}
+                    </button>
+                    <p className="text-xs text-center text-vatech-gray-mid leading-tight">
+                      {res || desc}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Result banner */}
       {drawState === "done" && lastResult && (
