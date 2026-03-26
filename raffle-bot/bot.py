@@ -470,17 +470,15 @@ async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    import asyncio
+async def _main():
+    global _bot_app, _bot_loop
 
     init_db()
     threading.Thread(target=run_api, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
-    _bot_app = app
-    # Capture the event loop that run_polling will use
-    _bot_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(_bot_loop)
+    _bot_app  = app
+    _bot_loop = asyncio.get_event_loop()   # the loop asyncio.run() created
 
     app.add_handler(CommandHandler("start",    cmd_start))
     app.add_handler(CommandHandler("export",   cmd_export))
@@ -494,4 +492,15 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(callback_confirm_night, pattern="^confirm_night$"))
 
     log.info("Bot polling started")
-    app.run_polling(close_loop=False)
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    log.info("Polling active — press Ctrl+C to stop")
+    await asyncio.Event().wait()   # block until cancelled
+
+if __name__ == "__main__":
+    import asyncio
+    try:
+        asyncio.run(_main())
+    except KeyboardInterrupt:
+        log.info("Stopped")
