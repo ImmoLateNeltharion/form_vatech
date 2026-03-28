@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Settings, Table, Save, Trash2, Download,
   Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, Gift, Ticket, HelpCircle,
-  Trophy, X, Shuffle, CheckCircle, AlertCircle, Loader2,
+  Trophy, X, Shuffle, CheckCircle, AlertCircle, Loader2, Clock,
 } from "lucide-react";
 import { VatechLogo } from "../components/VatechLogo";
 import { StatusBadge } from "../components/StatusBadge";
@@ -400,9 +400,144 @@ function SettingsPanel({ config, setConfig, showToken, setShowToken, saved, onSa
         </div>
       </div>
 
+      {/* Bot schedule */}
+      <BotScheduleCard botUrl={config.raffleBotUrl} />
+
       <button onClick={onSave} className="vatech-btn-primary flex items-center justify-center gap-2">
         <Save size={16} />{saved ? "Сохранено ✓" : "Сохранить настройки"}
       </button>
+    </div>
+  );
+}
+
+// Converts "2025-05-27T10:00" (local datetime-input value) → UTC ISO string
+function localToIso(local: string): string {
+  if (!local) return "";
+  return new Date(local).toISOString();
+}
+// Converts UTC ISO → "YYYY-MM-DDTHH:mm" for datetime-local input (local time)
+function isoToLocal(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function BotScheduleCard({ botUrl }: { botUrl: string }) {
+  const [openFrom,  setOpenFrom]  = useState("");
+  const [openUntil, setOpenUntil] = useState("");
+  const [status, setStatus] = useState<"idle"|"loading"|"saved"|"error">("idle");
+  const [botOpen, setBotOpen] = useState<boolean | null>(null);
+  const [loadErr, setLoadErr] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!botUrl) return;
+    try {
+      const r = await fetch(`${botUrl}/schedule`);
+      const d = await r.json();
+      setOpenFrom(isoToLocal(d.open_from || ""));
+      setOpenUntil(isoToLocal(d.open_until || ""));
+      setLoadErr(false);
+    } catch { setLoadErr(true); }
+  }, [botUrl]);
+
+  const checkOpen = useCallback(async () => {
+    if (!botUrl) return;
+    try {
+      const r = await fetch(`${botUrl}/health`);
+      const d = await r.json();
+      setBotOpen(d.bot_open ?? null);
+    } catch { setBotOpen(null); }
+  }, [botUrl]);
+
+  useEffect(() => { load(); checkOpen(); }, [load, checkOpen]);
+
+  const handleSave = async () => {
+    if (!botUrl) return;
+    setStatus("loading");
+    try {
+      const r = await fetch(`${botUrl}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          open_from:  localToIso(openFrom),
+          open_until: localToIso(openUntil),
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) { setBotOpen(d.bot_open); setStatus("saved"); setTimeout(() => setStatus("idle"), 2500); }
+      else { setStatus("error"); }
+    } catch { setStatus("error"); }
+  };
+
+  const handleClear = async () => {
+    setOpenFrom(""); setOpenUntil("");
+    if (!botUrl) return;
+    setStatus("loading");
+    try {
+      await fetch(`${botUrl}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ open_from: "", open_until: "" }),
+      });
+      setBotOpen(true);
+      setStatus("saved"); setTimeout(() => setStatus("idle"), 2500);
+    } catch { setStatus("error"); }
+  };
+
+  const isBusy = status === "loading";
+
+  return (
+    <div className="vatech-card space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className="w-2 h-6 bg-orange-400 rounded-full flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold text-vatech-dark flex items-center gap-2">
+              Расписание бота
+              {botOpen === true && <span className="text-xs font-medium text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">🟢 открыт</span>}
+              {botOpen === false && <span className="text-xs font-medium text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">🔴 закрыт</span>}
+              {botOpen === null && !loadErr && <span className="text-xs text-vatech-gray-mid">…</span>}
+              {loadErr && <span className="text-xs text-amber-600">⚠ бот недоступен</span>}
+            </p>
+            <p className="text-xs text-vatech-gray-mid mt-0.5">
+              Вне указанного окна бот отклоняет новые регистрации. Если поля пусты — принимает всегда.
+            </p>
+          </div>
+        </div>
+        <button onClick={() => { load(); checkOpen(); }} disabled={isBusy}
+          className="text-vatech-gray-mid hover:text-vatech-red transition-colors flex-shrink-0">
+          <RefreshCw size={14} className={isBusy ? "animate-spin" : ""} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="vatech-label flex items-center gap-1.5"><Clock size={12} /> Открыть с</label>
+          <input type="datetime-local" value={openFrom}
+            onChange={e => setOpenFrom(e.target.value)}
+            className="vatech-input text-sm" />
+        </div>
+        <div>
+          <label className="vatech-label flex items-center gap-1.5"><Clock size={12} /> Закрыть до</label>
+          <input type="datetime-local" value={openUntil}
+            onChange={e => setOpenUntil(e.target.value)}
+            className="vatech-input text-sm" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button onClick={handleSave} disabled={isBusy}
+          className="vatech-btn-primary flex items-center gap-2 py-2 text-sm disabled:opacity-50">
+          {isBusy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          {status === "saved" ? "Сохранено ✓" : "Применить расписание"}
+        </button>
+        <button onClick={handleClear} disabled={isBusy}
+          className="px-3 py-2 rounded-lg border border-vatech-border text-vatech-gray text-sm hover:border-red-300 hover:text-red-500 transition-colors disabled:opacity-50">
+          Сбросить
+        </button>
+        {status === "error" && <span className="text-xs text-red-500">Ошибка — проверьте URL бота</span>}
+      </div>
     </div>
   );
 }

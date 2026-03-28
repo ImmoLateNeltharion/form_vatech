@@ -54,6 +54,12 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now','localtime'))
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS config (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
 
 def db_add_pending(name: str, phone: str, clinic: str) -> str:
     token = secrets.token_urlsafe(16)
@@ -106,6 +112,41 @@ def db_reset():
     with sqlite3.connect(DB_PATH) as c:
         c.execute("DELETE FROM participants")
 
+def db_get_config(key: str) -> str | None:
+    with sqlite3.connect(DB_PATH) as c:
+        row = c.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+def db_set_config(key: str, value: str):
+    with sqlite3.connect(DB_PATH) as c:
+        c.execute("INSERT OR REPLACE INTO config (key,value) VALUES (?,?)", (key, value))
+
+def db_del_config(key: str):
+    with sqlite3.connect(DB_PATH) as c:
+        c.execute("DELETE FROM config WHERE key=?", (key,))
+
+def is_bot_open() -> tuple[bool, str]:
+    """Returns (is_open, reason). If no schedule set → always open."""
+    from datetime import datetime, timezone
+    open_from  = db_get_config("open_from")
+    open_until = db_get_config("open_until")
+    if not open_from and not open_until:
+        return True, "no_schedule"
+    now = datetime.now(timezone.utc)
+    if open_from:
+        t = datetime.fromisoformat(open_from)
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        if now < t:
+            return False, "not_started"
+    if open_until:
+        t = datetime.fromisoformat(open_until)
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        if now > t:
+            return False, "expired"
+    return True, "ok"
+
 # ── HTTP API ──────────────────────────────────────────────────────────────────
 
 # Bot app reference + its event loop, set before polling starts
@@ -133,7 +174,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send(200, {"ok": True, "participants": db_count()})
+            open_ok, reason = is_bot_open()
+            self._send(200, {"ok": True, "participants": db_count(),
+                             "bot_open": open_ok, "reason": reason})
         elif self.path == "/participants":
             rows = db_list_with_chat_id()
             self._send(200, {"ok": True, "participants": [
@@ -141,6 +184,10 @@ class Handler(BaseHTTPRequestHandler):
                  "clinic": r[3], "chat_id": r[4], "registered_at": r[5]}
                 for r in rows
             ]})
+        elif self.path == "/schedule":
+            self._send(200, {"ok": True,
+                             "open_from":  db_get_config("open_from")  or "",
+                             "open_until": db_get_config("open_until") or ""})
         else:
             self._send(404, {"error": "not found"})
 
@@ -157,9 +204,29 @@ class Handler(BaseHTTPRequestHandler):
             clinic = str(body.get("clinic",    "")).strip()
             if not name or not phone:
                 self._send(400, {"error": "name and phone required"}); return
+            open_ok, reason = is_bot_open()
+            if not open_ok:
+                msg = ("Регистрация ещё не началась." if reason == "not_started"
+                       else "Регистрация завершена. Приём заявок закрыт.")
+                self._send(403, {"error": "bot_closed", "message": msg}); return
             token = db_add_pending(name, phone, clinic)
             log.info("pending: %s %s → token %s", name, phone, token)
             self._send(200, {"ok": True, "token": token})
+
+        elif self.path == "/schedule":
+            open_from  = str(body.get("open_from",  "")).strip()
+            open_until = str(body.get("open_until", "")).strip()
+            if open_from:
+                db_set_config("open_from", open_from)
+            else:
+                db_del_config("open_from")
+            if open_until:
+                db_set_config("open_until", open_until)
+            else:
+                db_del_config("open_until")
+            open_ok, _ = is_bot_open()
+            log.info("schedule updated: from=%s until=%s open=%s", open_from, open_until, open_ok)
+            self._send(200, {"ok": True, "open_from": open_from, "open_until": open_until, "bot_open": open_ok})
 
         elif self.path == "/reset":
             n = db_count()
