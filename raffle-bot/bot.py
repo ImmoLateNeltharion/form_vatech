@@ -186,13 +186,13 @@ class Handler(BaseHTTPRequestHandler):
                         f"🌙 *Вы приглашены на Vatech Night*\n\n"
                         f"Поздравляем — вы в числе гостей 🎉\n\n"
                         f"Вы получаете билет на закрытое вечернее мероприятие: "
-                        f"музыка, нетворкинг и особая атмосфера вне основной программы выставки.\n\n"
-                        f"*Приз: {prize_name}*\n\n"
-                        f"Пожалуйста, подтвердите участие в течение 2 часов — "
-                        f"иначе билет может быть передан следующему участнику.\n\n"
+                        f"музыка, нетворкинг и особая атмосфера вне основной программы выставки\\.\n\n"
+                        f"Пожалуйста, подтвердите участие в течение 2 часов:\n"
+                        f"👇\n\n"
+                        f"После этого билет может быть передан следующему участнику\\.\n\n"
                         f"До встречи на Vatech Night ✨"
                     ),
-                    parse_mode="Markdown",
+                    parse_mode="MarkdownV2",
                     reply_markup=keyboard,
                 )
             try:
@@ -217,27 +217,24 @@ class Handler(BaseHTTPRequestHandler):
             import asyncio
             TEXT = {
                 "announce": (
-                    "🌙 *Vatech Night 28 мая — 4 билета, доступ ограничен*\n\n"
-                    "Совсем скоро мы разыграем билеты на закрытое вечернее мероприятие в рамках выставки.\n\n"
+                    "🌙 *Vatech Night 28 мая \\(4 билета\\) — доступ ограничен*\n\n"
+                    "Совсем скоро мы разыграем билеты на закрытое вечернее мероприятие в рамках выставки\\.\n\n"
                     "Это не просто вечер — это музыка, профессиональный нетворкинг "
-                    "и возможность стать частью Vatech Family.\n\n"
-                    "Проверьте, что вы выполнили все условия участия. "
-                    "Количество мест строго ограничено."
+                    "и возможность стать частью Vatech Family\\.\n\n"
+                    "Проверьте, что вы выполнили все условия участия\\. "
+                    "Количество мест строго ограничено\\."
                 ),
                 "hour": (
                     "⏰ *1 час до Vatech Night*\n\n"
-                    "Финальный момент перед розыгрышем.\n\n"
-                    "Убедитесь, что вы:\n"
-                    "✔ участвуете\n"
-                    "✔ выполнили все условия\n"
-                    "✔ подписаны на наш Telegram-канал\n\n"
-                    "Через час мы определим, кто получит приглашение в закрытый круг гостей вечера."
+                    "Финальный момент перед розыгрышем\\.\n\n"
+                    "Убедитесь, что вы: ✔ участвуете ✔ выполнили все условия ✔ подписаны на наш Telegram\\-канал\n\n"
+                    "Через час мы определим, кто получит приглашение в закрытый круг гостей вечера\\."
                 ),
                 "launch": (
                     "🎉 *Запускаем розыгрыш Vatech Night*\n\n"
-                    "Прямо сейчас рандомайзер определяет гостей закрытого вечера.\n\n"
+                    "Прямо сейчас рандомайзер определяет гостей закрытого вечера\\.\n\n"
                     "Уже через несколько минут станет ясно, кто получит доступ к атмосфере Vatech Night: "
-                    "музыка, общение и профессиональное окружение."
+                    "музыка, общение и профессиональное окружение\\."
                 ),
             }
             msg = TEXT[kind]
@@ -245,7 +242,7 @@ class Handler(BaseHTTPRequestHandler):
                 ok = 0
                 for cid in targets:
                     try:
-                        await _bot_app.bot.send_message(chat_id=cid, text=msg, parse_mode="Markdown")
+                        await _bot_app.bot.send_message(chat_id=cid, text=msg, parse_mode="MarkdownV2")
                         ok += 1
                     except Exception as e:
                         log.warning("broadcast skip chat_id=%s: %s", cid, e)
@@ -370,7 +367,7 @@ async def callback_confirm_night(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             pass
     log.info("night_confirm: user_id=%s name=%s", user.id, user.full_name)
 
-async def _broadcast_text(text: str):
+async def _broadcast_text(text: str, parse_mode: str = "MarkdownV2"):
     rows = db_list_with_chat_id()
     ok = 0
     for r in rows:
@@ -378,7 +375,7 @@ async def _broadcast_text(text: str):
         if not cid:
             continue
         try:
-            await _bot_app.bot.send_message(chat_id=cid, text=text, parse_mode="Markdown")
+            await _bot_app.bot.send_message(chat_id=cid, text=text, parse_mode=parse_mode)
             ok += 1
         except Exception as e:
             log.warning("broadcast skip chat_id=%s: %s", cid, e)
@@ -387,39 +384,36 @@ async def _broadcast_text(text: str):
 @admin_only
 async def cmd_announce(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "🌙 *Vatech Night 28 мая — 4 билета, доступ ограничен*\n\n"
-        "Совсем скоро мы разыграем билеты на закрытое вечернее мероприятие в рамках выставки.\n\n"
+        "🌙 *Vatech Night 28 мая \\(4 билета\\) — доступ ограничен*\n\n"
+        "Совсем скоро мы разыграем билеты на закрытое вечернее мероприятие в рамках выставки\\.\n\n"
         "Это не просто вечер — это музыка, профессиональный нетворкинг "
-        "и возможность стать частью Vatech Family.\n\n"
-        "Проверьте, что вы выполнили все условия участия. "
-        "Количество мест строго ограничено."
+        "и возможность стать частью Vatech Family\\.\n\n"
+        "Проверьте, что вы выполнили все условия участия\\. "
+        "Количество мест строго ограничено\\."
     )
-    sent = await _broadcast_text(msg)
+    sent = await _broadcast_text(msg, parse_mode="MarkdownV2")
     await update.message.reply_text(f"📢 Анонс отправлен: {sent} участников")
 
 @admin_only
 async def cmd_hour(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = (
         "⏰ *1 час до Vatech Night*\n\n"
-        "Финальный момент перед розыгрышем.\n\n"
-        "Убедитесь, что вы:\n"
-        "✔ участвуете\n"
-        "✔ выполнили все условия\n"
-        "✔ подписаны на наш Telegram-канал\n\n"
-        "Через час мы определим, кто получит приглашение в закрытый круг гостей вечера."
+        "Финальный момент перед розыгрышем\\.\n\n"
+        "Убедитесь, что вы: ✔ участвуете ✔ выполнили все условия ✔ подписаны на наш Telegram\\-канал\n\n"
+        "Через час мы определим, кто получит приглашение в закрытый круг гостей вечера\\."
     )
-    sent = await _broadcast_text(msg)
+    sent = await _broadcast_text(msg, parse_mode="MarkdownV2")
     await update.message.reply_text(f"⏰ Рассылка «1 час» отправлена: {sent} участников")
 
 @admin_only
 async def cmd_launch(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = (
         "🎉 *Запускаем розыгрыш Vatech Night*\n\n"
-        "Прямо сейчас рандомайзер определяет гостей закрытого вечера.\n\n"
+        "Прямо сейчас рандомайзер определяет гостей закрытого вечера\\.\n\n"
         "Уже через несколько минут станет ясно, кто получит доступ к атмосфере Vatech Night: "
-        "музыка, общение и профессиональное окружение."
+        "музыка, общение и профессиональное окружение\\."
     )
-    sent = await _broadcast_text(msg)
+    sent = await _broadcast_text(msg, parse_mode="MarkdownV2")
     await update.message.reply_text(f"🎉 Рассылка «старт» отправлена: {sent} участников")
 
 @admin_only
