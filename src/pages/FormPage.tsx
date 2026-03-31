@@ -183,9 +183,6 @@ export default function FormPage() {
             Фирменный ежедневник или стикерпак — за подписку на соцсети{" "}
             <span className="text-white/60">(предложение ограничено)</span>
           </p>
-          <div className="mt-4 inline-flex items-center gap-2 bg-white/15 rounded-xl px-4 py-2 text-sm font-bold animate-fade-in-up anim-delay-300">
-            🎟 Анкета = участие в розыгрыше билетов 28 мая
-          </div>
         </div>
       </div>
 
