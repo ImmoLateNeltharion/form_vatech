@@ -9,6 +9,10 @@ RUN npm ci
 
 # Copy source and build
 COPY . .
+ARG VITE_BOT_URL=""
+ARG VITE_BOT_USERNAME=""
+ENV VITE_BOT_URL=$VITE_BOT_URL
+ENV VITE_BOT_USERNAME=$VITE_BOT_USERNAME
 RUN npx vite build
 
 # ── Stage 2: serve ───────────────────────────────────────────────────────────
