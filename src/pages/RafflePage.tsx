@@ -54,7 +54,7 @@ export default function RafflePage() {
       addRaffleSubmission(data, bitrixOk, false);
       setSubmittedName(values.firstName);
       setBotToken(token);
-      setBotUsername(config.raffleBotUsername || "vsuet_ctf_bot");
+      setBotUsername(config.raffleBotUsername || import.meta.env.VITE_BOT_USERNAME || "");
       setStatus("success");
       reset();
     } catch {
