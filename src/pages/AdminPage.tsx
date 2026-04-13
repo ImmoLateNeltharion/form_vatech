@@ -300,7 +300,21 @@ function SettingsPanel({ config, setConfig, showToken, setShowToken, saved, onSa
           </div>
           <Divider />
           <div>
-            <label className="vatech-label">URL Яндекс.Формы (лиды)</label>
+            <label className="vatech-label">URL Яндекс.Формы — Краснодар</label>
+            <input value={config.yandexFormUrlKrasnodar ?? ""}
+              onChange={(e) => setConfig({ ...config, yandexFormUrlKrasnodar: e.target.value })}
+              placeholder="https://forms.yandex.ru/u/..."
+              className="vatech-input" />
+          </div>
+          <div>
+            <label className="vatech-label">URL Яндекс.Формы — Москва</label>
+            <input value={config.yandexFormUrlMoscow ?? ""}
+              onChange={(e) => setConfig({ ...config, yandexFormUrlMoscow: e.target.value })}
+              placeholder="https://forms.yandex.ru/u/..."
+              className="vatech-input" />
+          </div>
+          <div>
+            <label className="vatech-label">URL Яндекс.Формы (общий / резерв)</label>
             <input value={config.yandexFormUrl}
               onChange={(e) => setConfig({ ...config, yandexFormUrl: e.target.value })}
               placeholder="https://forms.yandex.ru/surveys/XXXXX/answer/"

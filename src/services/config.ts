@@ -7,6 +7,8 @@ export const defaultConfig: AdminConfig = {
   yandexSheetId: "",
   yandexToken: "",
   yandexFormUrl: "",
+  yandexFormUrlKrasnodar: "https://forms.yandex.ru/u/69d909455056902452e783a4",
+  yandexFormUrlMoscow:    "https://forms.yandex.ru/u/69d905b190fa7b3121924639",
   yandexRaffleSheetId: "",
   yandexRaffleFormUrl: "",
   yandexFeedbackSheetId: "",

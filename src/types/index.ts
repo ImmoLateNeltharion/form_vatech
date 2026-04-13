@@ -70,6 +70,9 @@ export interface AdminConfig {
   yandexSheetId: string;
   yandexToken: string;
   yandexFormUrl: string;
+  // per-city yandex form URLs
+  yandexFormUrlKrasnodar: string;
+  yandexFormUrlMoscow: string;
   // raffle-specific
   yandexRaffleSheetId: string;
   yandexRaffleFormUrl: string;

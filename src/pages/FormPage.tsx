@@ -41,7 +41,10 @@ const schema = z.object({
 type Schema = z.infer<typeof schema>;
 type Status = "idle" | "loading" | "success" | "error";
 
-export default function FormPage() {
+export default function FormPage({ cityName, cityYandexFormUrl }: {
+  cityName?: string;
+  cityYandexFormUrl?: string;
+}) {
   const [status, setStatus] = useState<Status>("idle");
   const [submittedName, setSubmittedName] = useState("");
   const [botToken, setBotToken] = useState<string | null>(null);
@@ -58,7 +61,7 @@ export default function FormPage() {
 
   const { register, handleSubmit, watch, setValue, control, formState: { errors }, reset } = useForm<Schema>({
     resolver: zodResolver(schema),
-    defaultValues: { products: [], phone: "+7" },
+    defaultValues: { products: [], phone: "+7", city: cityName ?? "" },
   });
 
   // Watch all fields for fill indicators + disclosure logic
@@ -118,12 +121,14 @@ export default function FormPage() {
       consent: values.consent,
     };
     try {
+      // Pick Yandex URL: city-specific prop overrides generic config
+      const effectiveYandexUrl = cityYandexFormUrl || config.yandexFormUrl;
       const [bitrixOk, yandexOk, token] = await Promise.all([
         sendLeadToBitrix(config.bitrixWebhookUrl, data),
         config.yandexSheetId && config.yandexToken
           ? sendToYandexSheet(config.yandexSheetId, config.yandexToken, data as any)
-          : config.yandexFormUrl
-          ? sendToYandexForm(config.yandexFormUrl, data as any)
+          : effectiveYandexUrl
+          ? sendToYandexForm(effectiveYandexUrl, data as any)
           : Promise.resolve(false),
         sendRaffleToBot(config.raffleBotUrl, {
           firstName: data.firstName,
@@ -224,8 +229,15 @@ export default function FormPage() {
                   </FormField>
                 </div>
                 <FormField label="Город / регион" required filled={f.city} error={errors.city?.message}>
-                  <input {...register("city")} placeholder="Москва"
-                    className={`vatech-input ${errors.city ? "error" : f.city ? "filled" : ""}`} />
+                  {cityName ? (
+                    <div className={`vatech-input filled flex items-center gap-2 bg-gray-50 cursor-default select-none`}>
+                      <span className="text-vatech-gray font-semibold">{cityName}</span>
+                      <span className="ml-auto text-xs text-green-500 font-semibold">✓</span>
+                    </div>
+                  ) : (
+                    <input {...register("city")} placeholder="Москва"
+                      className={`vatech-input ${errors.city ? "error" : f.city ? "filled" : ""}`} />
+                  )}
                 </FormField>
               </Section>
             </div>
